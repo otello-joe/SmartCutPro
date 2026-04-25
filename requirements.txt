@@ -1,0 +1,8 @@
+customtkinter
+tkinterdnd2
+moviepy
+scenedetect
+opencv-python
+proglog
+Pillow
+pygame

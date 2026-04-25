@@ -1,0 +1,46 @@
+name: Build SmartCut Pro
+
+on:
+  push:
+    tags:
+      - 'v*' # 只有当你推送 v1.0, v2.0 这样的标签时，才会触发自动打包
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest] # 同时在 Linux 和 Windows 上打包
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10' # 使用稳定的 Python 3.10
+
+    - name: Install System Dependencies (Linux only)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg libsdl2-mixer-2.0-0
+
+    - name: Install Python Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+
+    - name: Build Executable with PyInstaller
+      run: |
+        # 使用 collect-all 确保 customtkinter 和 tkinterdnd2 的素材被正确打包
+        pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" --collect-all customtkinter --collect-all tkinterdnd2 main.py
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: SmartCutPro-${{ runner.os }}
+        path: dist/SmartCutPro

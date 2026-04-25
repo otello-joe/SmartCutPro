@@ -1,0 +1,24 @@
+# Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 虚拟环境
+venv/
+env/
+.env
+
+# 打包输出目录
+build/
+dist/
+*.spec
+
+# IDE 和日志
+.vscode/
+.idea/
+*.log
+
+# 软件自身缓存
+smartcut_pro_cache/
+_已处理原片/
+SmartCut_成品_*/
