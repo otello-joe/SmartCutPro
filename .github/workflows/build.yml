@@ -11,16 +11,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest] # 同时在 Linux 和 Windows 上打包
+        os:[ubuntu-latest, windows-latest] # 同时在 Linux 和 Windows 上打包
 
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4  # 升级到 v4
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5  # 升级到 v5
       with:
-        python-version: '3.10' # 使用稳定的 Python 3.10
+        python-version: '3.10'
 
     - name: Install System Dependencies (Linux only)
       if: runner.os == 'Linux'
@@ -36,11 +36,10 @@ jobs:
 
     - name: Build Executable with PyInstaller
       run: |
-        # 使用 collect-all 确保 customtkinter 和 tkinterdnd2 的素材被正确打包
         pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" --collect-all customtkinter --collect-all tkinterdnd2 main.py
 
     - name: Upload Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4  # 升级到 v4 (解决报错的关键)
       with:
         name: SmartCutPro-${{ runner.os }}
         path: dist/SmartCutPro
