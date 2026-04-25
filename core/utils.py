@@ -1,4 +1,5 @@
 from proglog import ProgressBarLogger
+
 class GUIProgressBarLogger(ProgressBarLogger):
     def __init__(self, progress_callback, start_offset=0.0, scale=1.0):
         super().__init__()

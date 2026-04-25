@@ -1,4 +1,20 @@
-import os, shutil, atexit, logging, tempfile, warnings, time
+import sys
+import os
+import importlib.metadata
+
+# --- 【终极补丁】：欺骗 imageio，防止 PyInstaller 打包后找不到元数据崩溃 ---
+_original_version = importlib.metadata.version
+def _patched_version(pkg_name):
+    if pkg_name == 'imageio': return '2.33.0'
+    if pkg_name == 'moviepy': return '1.0.3'
+    try:
+        return _original_version(pkg_name)
+    except importlib.metadata.PackageNotFoundError:
+        return '0.0.0'
+importlib.metadata.version = _patched_version
+# --------------------------------------------------------
+
+import shutil, atexit, logging, tempfile, warnings, time
 from ui.main_window import MainWindow
 from tkinterdnd2 import TkinterDnD
 

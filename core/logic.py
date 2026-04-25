@@ -3,10 +3,18 @@ from datetime import datetime
 from scenedetect import detect, ContentDetector, split_video_ffmpeg
 from .config_mgr import cfg, LOG_FILE
 
-# 统一临时目录：Linux 优先使用内存盘 /dev/shm
 SYSTEM_TEMP = '/dev/shm' if (os.name != 'nt' and os.path.exists('/dev/shm')) else tempfile.gettempdir()
 
 logging.basicConfig(filename=LOG_FILE, level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# --- 【终极补丁】：洗掉 PyInstaller 的环境变量污染，拯救 Linux 下的 FFmpeg ---
+def get_clean_env():
+    env = os.environ.copy()
+    if 'LD_LIBRARY_PATH_ORIG' in env:
+        env['LD_LIBRARY_PATH'] = env['LD_LIBRARY_PATH_ORIG']
+    elif 'LD_LIBRARY_PATH' in env:
+        del env['LD_LIBRARY_PATH']
+    return env
 
 def setup_ffmpeg_env():
     custom_ff = cfg.get("ffmpeg_path")
@@ -35,9 +43,8 @@ except ImportError:
 from .utils import GUIProgressBarLogger
 
 def run_ffmpeg_with_stop(cmd, stop_event):
-    """执行 FFmpeg 并支持 stop_event 强制终止进程"""
     try:
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=get_clean_env())
         while process.poll() is None:
             if stop_event and stop_event.is_set():
                 process.terminate()
@@ -51,8 +58,8 @@ def run_ffmpeg_with_stop(cmd, stop_event):
 
 def get_video_full_info(filepath):
     try:
-        cmd = ['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=bit_rate,avg_frame_rate', '-of', 'default=noprint_wrappers=1:nokey=1', filepath]
-        res = subprocess.run(cmd, capture_output=True, text=True).stdout.strip().split('\n')
+        cmd =['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=bit_rate,avg_frame_rate', '-of', 'default=noprint_wrappers=1:nokey=1', filepath]
+        res = subprocess.run(cmd, capture_output=True, text=True, env=get_clean_env()).stdout.strip().split('\n')
         bitrate = int(res[0]) / 1000 if (len(res)>0 and res[0].isdigit()) else 5000
         fps = 30.0
         if len(res) > 1 and '/' in res[1]:
@@ -83,7 +90,6 @@ def get_dynamic_outdir(video_path):
     return out_dir
 
 def apply_effects(clip, wm_path, bgm_path, vol, speed=1.0, stop_event=None):
-    # --- 1. 变速不变调核心逻辑 ---
     if speed != 1.0:
         try:
             original_audio = clip.audio
@@ -101,8 +107,10 @@ def apply_effects(clip, wm_path, bgm_path, vol, speed=1.0, stop_event=None):
                 temp_in = os.path.abspath(os.path.join(SYSTEM_TEMP, f"in_{uuid.uuid4().hex[:8]}.wav"))
                 temp_out = os.path.abspath(os.path.join(SYSTEM_TEMP, f"out_{uuid.uuid4().hex[:8]}.wav"))
                 original_audio.write_audiofile(temp_in, fps=44100, logger=None)
-                cmd = [FFMPEG_EXE, '-y', '-i', temp_in, '-filter:a', f'atempo={speed}', '-ar', '44100', temp_out]
+
+                cmd =[FFMPEG_EXE, '-y', '-i', temp_in, '-filter:a', f'atempo={speed}', '-ar', '44100', temp_out]
                 if not run_ffmpeg_with_stop(cmd, stop_event): return None
+
                 if IS_V2: from moviepy import AudioFileClip as AFClip
                 else: from moviepy.editor import AudioFileClip as AFClip
                 clip.audio = AFClip(temp_out)
@@ -110,12 +118,10 @@ def apply_effects(clip, wm_path, bgm_path, vol, speed=1.0, stop_event=None):
                 except: pass
         except Exception as e: logging.error(f"变速失败: {e}")
 
-    # --- 2. 剪辑时间 ---
     safe_dur = max(0.1, clip.duration - 0.05)
     if hasattr(clip, 'subclipped'): clip = clip.subclipped(0, safe_dur)
     else: clip = clip.subclip(0, safe_dur)
 
-    # --- 3. 水印 ---
     if wm_path and os.path.exists(wm_path):
         try:
             wm = ImageClip(wm_path)
@@ -126,7 +132,6 @@ def apply_effects(clip, wm_path, bgm_path, vol, speed=1.0, stop_event=None):
             clip = CompositeVideoClip([clip, wm])
         except Exception as e: logging.error(f"水印失败: {e}")
 
-    # --- 4. 背景音乐 ---
     if bgm_path and os.path.exists(bgm_path):
         try:
             bgm = AudioFileClip(bgm_path)
@@ -192,7 +197,7 @@ def crop_split_screen(video_path, stop_event, progress_cb, status_cb, temp_dir, 
     try:
         out_dir = get_dynamic_outdir(video_path); bitrate, fps = get_video_full_info(video_path)
         clean_vname = get_safe_clean_name(video_path); clip = VideoFileClip(video_path); w, h = clip.size
-        for side in ["L", "R"]:
+        for side in["L", "R"]:
             if stop_event.is_set(): break
             status_cb(f"裁切 {side}")
             x1, x2 = (0, w/2) if side == "L" else (w/2, w)

@@ -3,7 +3,13 @@ name: Build SmartCut Pro
 on:
   push:
     tags:
-      - 'v*' # 只有当你推送 v1.0, v2.0 这样的标签时，才会触发自动打包
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
@@ -11,7 +17,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest] # 注意这里 os: 后面有空格
+        os:[ubuntu-latest, windows-latest]
 
     steps:
     - name: Checkout Code
@@ -36,10 +42,19 @@ jobs:
 
     - name: Build Executable with PyInstaller
       run: |
-        pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" --collect-all customtkinter --collect-all tkinterdnd2 main.py
+        pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" --collect-all customtkinter --collect-all tkinterdnd2 --copy-metadata imageio --copy-metadata moviepy main.py
 
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v4
+    - name: Zip Build (Windows)
+      if: runner.os == 'Windows'
+      run: Compress-Archive -Path dist\SmartCutPro -DestinationPath SmartCutPro-Windows.zip
+
+    - name: Tar Build (Linux)
+      if: runner.os == 'Linux'
+      run: tar -czvf SmartCutPro-Linux.tar.gz -C dist SmartCutPro
+
+    - name: Upload to Release
+      uses: softprops/action-gh-release@v2
       with:
-        name: SmartCutPro-${{ runner.os }}
-        path: dist/SmartCutPro
+        files: |
+          SmartCutPro-Windows.zip
+          SmartCutPro-Linux.tar.gz
