@@ -14,7 +14,6 @@ DEFAULT_CONFIG = {
     "theme": "Light", "concurrency": 2, "last_watermark": "", "last_bgm": "",
     "last_bgm_vol": 0.2, "default_mode": 1, "auto_archive": True,
     "gpu_codec": "libx264", "ffmpeg_path": "", "app_style": "Standard",
-    # 布局记忆默认值
     "win_width": 1150, "win_height": 880, "win_x": 100, "win_y": 100, "pane_width": 310
 }
 

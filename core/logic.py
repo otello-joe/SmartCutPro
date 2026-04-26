@@ -7,15 +7,6 @@ SYSTEM_TEMP = '/dev/shm' if (os.name != 'nt' and os.path.exists('/dev/shm')) els
 
 logging.basicConfig(filename=LOG_FILE, level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# --- 【终极补丁】：洗掉 PyInstaller 的环境变量污染，拯救 Linux 下的 FFmpeg ---
-def get_clean_env():
-    env = os.environ.copy()
-    if 'LD_LIBRARY_PATH_ORIG' in env:
-        env['LD_LIBRARY_PATH'] = env['LD_LIBRARY_PATH_ORIG']
-    elif 'LD_LIBRARY_PATH' in env:
-        del env['LD_LIBRARY_PATH']
-    return env
-
 def setup_ffmpeg_env():
     custom_ff = cfg.get("ffmpeg_path")
     if custom_ff and os.path.exists(custom_ff):
@@ -44,7 +35,7 @@ from .utils import GUIProgressBarLogger
 
 def run_ffmpeg_with_stop(cmd, stop_event):
     try:
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=get_clean_env())
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         while process.poll() is None:
             if stop_event and stop_event.is_set():
                 process.terminate()
@@ -59,7 +50,7 @@ def run_ffmpeg_with_stop(cmd, stop_event):
 def get_video_full_info(filepath):
     try:
         cmd =['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=bit_rate,avg_frame_rate', '-of', 'default=noprint_wrappers=1:nokey=1', filepath]
-        res = subprocess.run(cmd, capture_output=True, text=True, env=get_clean_env()).stdout.strip().split('\n')
+        res = subprocess.run(cmd, capture_output=True, text=True).stdout.strip().split('\n')
         bitrate = int(res[0]) / 1000 if (len(res)>0 and res[0].isdigit()) else 5000
         fps = 30.0
         if len(res) > 1 and '/' in res[1]:

@@ -1,125 +1,100 @@
-# SmartCut Pro V40 🎬
+# 🎬 SmartCut Pro (V62 Pro+ Pure White Edition)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python Version](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)](https://github.com/)
+![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
+![Build Status](https://github.com/otello-joe/SmartCutPro/actions/workflows/build.yml/badge.svg)
+![Release](https://img.shields.io/github/v/release/otello-joe/SmartCutPro)
 
-**SmartCut Pro** is a high-performance, AI-powered video automation tool designed for content creators. It enables rapid batch processing of videos, including intelligent scene splitting, split-screen cropping, and automated watermark/BGM compositing.
-
-**SmartCut Pro** 是一款高性能、智能化的视频自动化处理工具，专为内容创作者设计。它支持通过 AI 场景检测进行快速批量处理，包括智能场景分割、同框分屏裁切以及自动化的水印与背景音乐合成。
-
----
-
-## ✨ Key Features / 核心功能
-
-- 🧠 **AI Scene Detection / 智能场景分割**: Uses `PySceneDetect` to automatically identify shot changes and split long videos into clips. (利用 AI 技术自动识别转场并分割视频)
-- ✂️ **Split-Screen Cropping / 同框分屏裁切**: Quickly generate Left/Right split-screen videos for social media. (快速生成适合短视频平台的左右分屏视频)
-- 🎨 **Batch Effect Compositing / 批量特效合成**: Automatically apply watermarks and background music (BGM) with volume control to entire batches. (批量添加水印和背景音乐，支持音量调节)
-- 🚀 **High-Efficiency Engine / 高效处理引擎**: Supports "Fast Mode" (FFmpeg stream copy) and multi-threaded processing to maximize hardware utilization. (支持极速模式与多线程并行处理，榨干硬件性能)
-- 🖥️ **Modern UI / 现代化界面**: A sleek, dark-themed interface built with `CustomTkinter`, featuring drag-and-drop support. (基于 CustomTkinter 开发的现代深色界面，支持文件拖拽)
-- ⚙️ **Smart Settings / 智能配置**: Remembers your last used watermark, BGM, and bitrate settings. (自动记忆上次使用的水印、音乐及码率设置)
+**SmartCut Pro** 是一款专为高效内容创作者打造的现代化视频自动化处理工具。它集成了智能场景分割、分屏裁切、无损变速、水印添加与 BGM 混音等功能，拥有极简的纯白工业级 UI，并针对底层 I/O 和并发进行了深度优化。
 
 ---
 
-## 📸 Screenshots / 界面展示
+## ✨ 核心特性 (Key Features)
 
-| Task Queue / 任务队列 | Control Panel / 控制面板 |
-| :---: | :---: |
-| ![UI_Queue](https://via.placeholder.com/400x250?text=Screenshot+1) | ![UI_Control](https://via.placeholder.com/400x250?text=Screenshot+2) |
-*(Note: Please replace these placeholders with your actual screenshots in the `docs/` folder)*
-*(注：请将此处占位图替换为你实际的软件截图)*
+### 🎞️ 视频与音频处理
+- **智能场景分割**：基于 `scenedetect` 算法，自动识别视频转场并精准切片。
+- **专业级无损变速**：底层调用 FFmpeg `atempo` 滤镜，**变速不变调**，彻底告别“花栗鼠”音效。
+- **自动化合成**：一键添加全局水印（支持自适应缩放）与背景音乐（支持自动循环、音量调节与尾部渐出）。
+- **分屏裁切**：一键将横屏/宽屏视频精准裁切为左、右两部分，适合短视频二次创作。
 
----
+### ⚡ 性能与工程优化
+- **内存级 I/O 加速**：在 Linux 系统下自动识别并使用 `/dev/shm`（内存盘）作为缓存，读写速度提升百倍，且零硬盘磨损。
+- **智能并发队列**：根据系统 CPU 核心数动态分配线程，采用 `Queue` 消费者模型，拒绝卡顿与内存溢出。
+- **显式内存回收**：深度优化 MoviePy 内存泄漏问题，每次渲染后强制 `gc.collect()`，坚如磐石。
+- **底层环境隔离**：全局拦截 `subprocess`，彻底解决 PyInstaller 打包后 Linux 下的 `LD_LIBRARY_PATH` 环境变量污染问题。
 
-## 🛠️ Prerequisites / 环境准备
-
-Before running SmartCut Pro, ensure you have the following installed:
-
-1. **Python 3.9 or higher**
-2. **FFmpeg** (Crucial: Must be added to your system PATH)
-   - [Download FFmpeg](https://ffmpeg.org/download.html)
-3. **Git** (Optional, for cloning)
-
-在运行 SmartCut Pro 之前，请确保已安装以下环境：
-1. **Python 3.9 或更高版本**
-2. **FFmpeg** (至关重要：必须添加到系统环境变量 PATH 中)
-3. **Git** (可选，用于克隆仓库)
+### 🎨 工业级 UI / UX
+- **纯白极简设计**：基于 `customtkinter` 打造的现代化界面，支持 Light/Dark 主题切换。
+- **拖拽交互**：支持多文件一键拖拽导入，带有灵动的视觉反馈。
+- **实时日志系统**：内嵌可视化日志窗口，渲染进度、报错信息一目了然。
+- **布局记忆**：自动记忆用户的窗口大小、位置及分栏比例，下次打开完美还原。
+- **系统级通知**：任务队列完成后，自动发送系统级桌面通知（支持 Linux `notify-send`）。
 
 ---
 
-## 🚀 Installation / 安装步骤
+## 📥 下载与安装 (Installation)
 
-1. **Clone the repository / 克隆仓库**:
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/SmartCutPro.git
-   cd SmartCutPro
-   
-   
-   
-   Create a virtual environment (Recommended) / 创建虚拟环境 (推荐):
-code
-Bash
-python -m venv venv
-# Windows
-source venv/Scripts/activate
-# Linux/macOS
-source venv/bin/activate
-Install dependencies / 安装依赖:
-code
-Bash
+### 方式一：下载免安装版 (推荐)
+我们通过 GitHub Actions 提供了自动打包的开箱即用版本：
+1. 前往本仓库的 [Releases 页面](https://github.com/otello-joe/SmartCutPro/releases)。
+2. 下载对应系统的压缩包：
+   - **Windows**: `SmartCutPro-Windows.zip`**(未测试)**
+   - **Linux**: `SmartCutPro-Linux.tar.gz`
+3. 解压后，直接运行 `SmartCutPro` 可执行文件即可。
+
+> **⚠️ 重要提示**：本软件底层依赖 FFmpeg。
+> - **Linux 用户**：请确保系统已安装 FFmpeg (`sudo apt install ffmpeg` 或 `sudo pacman -S ffmpeg`)。
+> - **Windows 用户**：请自行下载 `ffmpeg.exe`，并在软件的“系统设置”中配置好 FFmpeg 路径。
+
+### 方式二：从源码运行
+确保你的电脑已安装 Python 3.10 或更高版本。
+
+# 1. 克隆仓库
+git clone https://github.com/otello-joe/SmartCutPro.git
+cd SmartCutPro
+
+# 2. 安装依赖
 pip install -r requirements.txt
-Run the application / 运行程序:
-code
-Bash
+
+# 3. 运行程序
 python main.py
-📖 Usage Guide / 使用指南
-Import Files / 导入素材: Drag and drop video files directly into the task queue or click + Import. (直接将视频拖入队列或点击“导入”)
-Select Mode / 选择模式:
-Smart Scene Split: Split video by content changes. (按场景分割)
-Split Screen: Crop to left/right halves. (分屏裁切)
-Composite Effects: Add watermark and BGM. (合成特效)
-Configure / 配置参数: Set your watermark image, BGM, and worker threads. (设置水印、背景音乐及并行线程数)
-Start / 开始: Click 🚀 Start Production! to begin. (点击“开启生产”开始处理)
-📦 Dependencies / 依赖清单
-CustomTkinter - Modern UI components
-MoviePy - Video editing engine
-PySceneDetect - Scene detection logic
-TkinterDnD2 - Drag and drop support
-OpenCV - Image/Video processing
-📄 License / 许可证
-This project is licensed under the MIT License. See the LICENSE file for details.
-本项目基于 MIT License 开源。详情请参阅 LICENSE 文件。
-🤝 Contributing / 贡献
-Contributions are welcome! If you find a bug or have a feature request:
-Fork the Project
-Create your Feature Branch (git checkout -b feature/AmazingFeature)
-Commit your Changes (git commit -m 'Add some AmazingFeature')
-Push to the Branch (git push origin feature/AmazingFeature)
-Open a Pull Request
-欢迎贡献代码！如果你发现 Bug 或有功能建议：
-Fork 本项目
-创建特性分支 (git checkout -b feature/AmazingFeature)
-提交更改 (git commit -m 'Add some AmazingFeature')
-推送到分支 (git push origin feature/AmazingFeature)
-发起 Pull Request
-Developed with ❤️ by [Your Name/Username]
-code
-Code
+
 ---
 
-### 💡 给你的专业建议（让 README 更完美）：
+## 🚀 使用指南 (Usage)
 
-1.  **替换占位图**：
-    *   我已经在代码里写了 `![UI_Queue](https://via.placeholder.com/...)`。
-    *   **强烈建议**：在你的项目里建一个 `docs` 文件夹，把你的软件运行截图放进去（比如 `docs/screenshot1.png`）。
-    *   然后把 README 里的链接改成 `![UI_Queue](docs/screenshot1.png)`。**有图的项目点击量和点赞量是没图的 10 倍以上。**
+- **导入视频**：点击 `+ 导入` 按钮，或直接将视频文件拖拽到左侧列表中。
+- **选择模式**：
+  - `智能分割`：根据画面变化自动切片。
+  - `分屏裁切`：将视频从中间一分为二（左/右）。
+  - `合成成品`：不剪切，仅添加水印、BGM和变速。
+- **配置资源**：
+  - 导入你的水印图片（`.png` / `.jpg`）。
+  - 导入背景音乐（`.mp3` / `.wav`），可点击 `▶ 试听` 实时调节音量。
+  - 拖动滑块设置视频倍速（0.5x - 2.0x）。
+- **开启生产**：点击 `🚀 开启生产`，软件将自动开启多线程处理。处理完成后，点击 `📂 浏览输出` 即可查看成品。
 
-2.  **替换用户名**：
-    *   记得把 `YOUR_USERNAME` 换成你真正的 GitHub 用户名。
-    *   把 `[Your Name/Username]` 换成你的名字。
+---
 
-3.  **关于 LICENSE**：
-    *   发布前，一定要在根目录创建一个名为 `LICENSE` 的文件，内容直接从 [MIT 官网](https://opensource.org/licenses/MIT) 复制即可。GitHub 的规则是：如果没有 LICENSE，别人其实是不敢随便用你的代码的。
+## 🛠️ 二次开发与打包 (Development & Build)
 
-4.  **添加 Release**：
-    *   如果你打包好了 `.exe`，一定要按照我上面提到的“发布 Release”步骤上传，这样用户在 GitHub 主页右侧点一下就能直接下载安装包，而不需要去学怎么运行 Python。
+本项目已配置完整的 GitHub Actions CI/CD 工作流。如果你想在本地手动打包，请执行以下命令：
+
+# 安装打包工具
+pip install pyinstaller
+
+# 执行打包 (包含必要的元数据和依赖)
+pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" \
+  --collect-all customtkinter \
+  --collect-all tkinterdnd2 \
+  --copy-metadata imageio \
+  --copy-metadata moviepy \
+  main.py
+
+打包完成后，可执行文件将生成在 `dist/SmartCutPro/` 目录下。
+
+---
+
+## 📄 开源协议 (License)
+
+本项目采用 MIT License 开源协议。你可以自由地使用、修改和分发本软件，但请保留原作者的版权声明。

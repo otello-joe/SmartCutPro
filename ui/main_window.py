@@ -21,12 +21,6 @@ warnings.filterwarnings("ignore", message=".*Given image is not CTKImage.*")
 from core.config_mgr import cfg, LOG_FILE
 from core.logic import split_by_scene_changes, crop_split_screen, add_watermark_only, get_dynamic_outdir, archive_original_file, setup_ffmpeg_env
 
-def get_clean_env():
-    env = os.environ.copy()
-    if 'LD_LIBRARY_PATH_ORIG' in env: env['LD_LIBRARY_PATH'] = env['LD_LIBRARY_PATH_ORIG']
-    elif 'LD_LIBRARY_PATH' in env: del env['LD_LIBRARY_PATH']
-    return env
-
 class UITextHandler(logging.Handler):
     def __init__(self, text_widget):
         super().__init__()
@@ -42,7 +36,7 @@ class UITextHandler(logging.Handler):
 
 def send_linux_notification(title, message):
     if os.name != 'nt':
-        try: subprocess.run(['notify-send', title, message], check=False, env=get_clean_env())
+        try: subprocess.run(['notify-send', title, message], check=False)
         except: pass
 
 class MainWindow(TkinterDnD.Tk):
@@ -229,15 +223,18 @@ class MainWindow(TkinterDnD.Tk):
         for _ in range(concurrency):
             threading.Thread(target=self._queue_worker, daemon=True).start()
 
+        threading.Thread(target=self._monitor_queue, daemon=True).start()
+
     def _queue_worker(self):
         while not self.task_queue.empty():
-            try:
-                fp, params = self.task_queue.get_nowait()
-                self._worker(fp, params)
-                self.task_queue.task_done()
+            try: fp, params = self.task_queue.get_nowait()
             except: break
-        if self.task_queue.empty():
-            self.after(0, self._finalize_processing)
+            self._worker(fp, params)
+            self.task_queue.task_done()
+
+    def _monitor_queue(self):
+        self.task_queue.join()
+        self.after(0, self._finalize_processing)
 
     def _finalize_processing(self):
         self.open_btn.configure(state="normal")
@@ -318,14 +315,14 @@ class MainWindow(TkinterDnD.Tk):
     def _restore_settings(self): self._update_previews()
     def save_settings(self): cfg.set("ffmpeg_path", self.ff_entry.get().strip()); setup_ffmpeg_env(); messagebox.showinfo("成功", "保存成功")
     def browse_watermark(self):
-        f = self._ask_file_via_dolphin("选择水印", "图片", ["*.png", "*.jpg"])
+        f = self._ask_file_via_dolphin("选择水印", "图片",["*.png", "*.jpg"])
         if f: self.current_wm_path = f; cfg.set("last_watermark", f); self._update_previews()
     def clear_bgm(self): self.current_bgm_path = ""; cfg.set("last_bgm", ""); self._update_previews()
     def browse_bgm(self):
         f = self._ask_file_via_dolphin("选择音乐", "音频", ["*.mp3", "*.wav", "*.m4a"])
         if f: self.current_bgm_path = f; cfg.set("last_bgm", f); self._update_previews()
     def browse_files(self):
-        f_list = self._ask_file_via_dolphin("选择视频", "视频", ["*.mp4", "*.mov", "*.mkv"], multiple=True)
+        f_list = self._ask_file_via_dolphin("选择视频", "视频",["*.mp4", "*.mov", "*.mkv"], multiple=True)
         if f_list:
             for f in f_list:
                 if f not in self.selected_files: self.selected_files.append(f); self._add_file_to_ui(f)
@@ -340,7 +337,7 @@ class MainWindow(TkinterDnD.Tk):
     def open_last_dir(self):
         if self.last_out_dir:
             try:
-                if os.name != 'nt': subprocess.run(['xdg-open', self.last_out_dir], env=get_clean_env())
+                if os.name != 'nt': subprocess.run(['xdg-open', self.last_out_dir])
                 else: subprocess.run(['explorer', self.last_out_dir])
             except: pass
     def _check_empty_state(self):
@@ -373,7 +370,7 @@ class MainWindow(TkinterDnD.Tk):
             if kdialog:
                 cmd =[kdialog, "--title", title, "--getopenfilename", os.getcwd(), f"{filter_label} ({' '.join(ext_list)})"]
                 if multiple: cmd.insert(3, "--multiple"); cmd.insert(4, "--separate-output")
-                res = subprocess.run(cmd, capture_output=True, text=True, env=get_clean_env())
+                res = subprocess.run(cmd, capture_output=True, text=True)
                 if res.returncode != 0 or not res.stdout.strip(): return None
                 return res.stdout.strip().split('\n') if multiple else res.stdout.strip()
         return filedialog.askopenfilenames(title=title) if multiple else filedialog.askopenfilename(title=title)
