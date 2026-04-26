@@ -59,9 +59,9 @@ pip install -r requirements.txt
 
 # 3. 运行程序
 python main.py
+```
 
-
-🚀 使用指南 (Usage)
+##🚀 使用指南 (Usage)
 导入视频：点击 + 导入 按钮，或直接将视频文件拖拽到左侧列表中。
 选择模式：
 智能分割：根据画面变化自动切片。
