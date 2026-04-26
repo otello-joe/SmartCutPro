@@ -21,16 +21,6 @@
 
 ---
 
-## 📸 Screenshots / 界面展示
-
-| Task Queue / 任务队列 | Control Panel / 控制面板 |
-| :---: | :---: |
-| ![UI_Queue](https://via.placeholder.com/400x250?text=Screenshot+1) | ![UI_Control](https://via.placeholder.com/400x250?text=Screenshot+2) |
-*(Note: Please replace these placeholders with your actual screenshots in the `docs/` folder)*
-*(注：请将此处占位图替换为你实际的软件截图)*
-
----
-
 ## 🛠️ Prerequisites / 环境准备
 
 Before running SmartCut Pro, ensure you have the following installed:
@@ -62,6 +52,8 @@ Bash
 python -m venv venv
 # Windows
 source venv/Scripts/activate
+
+
 # Linux/macOS
 source venv/bin/activate
 Install dependencies / 安装依赖:
@@ -106,20 +98,3 @@ Developed with ❤️ by [Your Name/Username]
 code
 Code
 ---
-
-### 💡 给你的专业建议（让 README 更完美）：
-
-1.  **替换占位图**：
-    *   我已经在代码里写了 `![UI_Queue](https://via.placeholder.com/...)`。
-    *   **强烈建议**：在你的项目里建一个 `docs` 文件夹，把你的软件运行截图放进去（比如 `docs/screenshot1.png`）。
-    *   然后把 README 里的链接改成 `![UI_Queue](docs/screenshot1.png)`。**有图的项目点击量和点赞量是没图的 10 倍以上。**
-
-2.  **替换用户名**：
-    *   记得把 `YOUR_USERNAME` 换成你真正的 GitHub 用户名。
-    *   把 `[Your Name/Username]` 换成你的名字。
-
-3.  **关于 LICENSE**：
-    *   发布前，一定要在根目录创建一个名为 `LICENSE` 的文件，内容直接从 [MIT 官网](https://opensource.org/licenses/MIT) 复制即可。GitHub 的规则是：如果没有 LICENSE，别人其实是不敢随便用你的代码的。
-
-4.  **添加 Release**：
-    *   如果你打包好了 `.exe`，一定要按照我上面提到的“发布 Release”步骤上传，这样用户在 GitHub 主页右侧点一下就能直接下载安装包，而不需要去学怎么运行 Python。
