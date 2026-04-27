@@ -1,4 +1,4 @@
-🎬 SmartCut Pro (V1.0 Pure White Edition)
+# **🎬 SmartCut Pro (V1.0 Pure White Edition)**
 
 ![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
