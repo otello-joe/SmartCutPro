@@ -38,7 +38,7 @@
 我们通过 GitHub Actions 提供了自动打包的开箱即用版本：
 1. 前往本仓库的 [Releases 页面](https://github.com/otello-joe/SmartCutPro/releases)。
 2. 下载对应系统的压缩包：
-   - **Windows**: `SmartCutPro-Windows.zip`**(未测试)**
+   - **Windows**: `SmartCutPro-Windows.zip`
    - **Linux**: `SmartCutPro-Linux.tar.gz`
 3. 解压后，直接运行 `SmartCutPro` 可执行文件即可。
 
