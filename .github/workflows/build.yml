@@ -8,7 +8,6 @@ on:
 permissions:
   contents: write
 
-# 【修复】：删除了 FORCE_JAVASCRIPT_ACTIONS_TO_NODE24，退回稳定的 Node 20 环境
 jobs:
   build:
     name: Build on ${{ matrix.os }}
@@ -56,15 +55,16 @@ jobs:
         cp ffmpeg_extracted/ffprobe .
         chmod +x ffmpeg ffprobe
 
+    # --- 【核心修复】：删除了 --copy-metadata 参数，因为我们已经彻底抛弃了臃肿的 MoviePy！ ---
     - name: Build Executable with PyInstaller (Windows)
       if: runner.os == 'Windows'
       run: |
-        pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" --collect-all customtkinter --collect-all tkinterdnd2 --copy-metadata imageio --copy-metadata moviepy --add-binary "ffmpeg.exe;." --add-binary "ffprobe.exe;." main.py
+        pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" --collect-all customtkinter --collect-all tkinterdnd2 --add-binary "ffmpeg.exe;." --add-binary "ffprobe.exe;." main.py
 
     - name: Build Executable with PyInstaller (Linux)
       if: runner.os == 'Linux'
       run: |
-        pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" --collect-all customtkinter --collect-all tkinterdnd2 --copy-metadata imageio --copy-metadata moviepy --add-binary "ffmpeg:." --add-binary "ffprobe:." main.py
+        pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" --collect-all customtkinter --collect-all tkinterdnd2 --add-binary "ffmpeg:." --add-binary "ffprobe:." main.py
 
     - name: Zip Build (Windows)
       if: runner.os == 'Windows'
