@@ -8,9 +8,7 @@ on:
 permissions:
   contents: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
+# 【修复】：删除了 FORCE_JAVASCRIPT_ACTIONS_TO_NODE24，退回稳定的 Node 20 环境
 jobs:
   build:
     name: Build on ${{ matrix.os }}
@@ -40,7 +38,6 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller
 
-    # --- 【找回】：自动下载 Windows 版 FFmpeg ---
     - name: Download FFmpeg (Windows)
       if: runner.os == 'Windows'
       run: |
@@ -49,7 +46,6 @@ jobs:
         Copy-Item "ffmpeg_extracted\ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe" -Destination "."
         Copy-Item "ffmpeg_extracted\ffmpeg-master-latest-win64-gpl\bin\ffprobe.exe" -Destination "."
 
-    # --- 【找回】：自动下载 Linux 版 FFmpeg ---
     - name: Download FFmpeg (Linux)
       if: runner.os == 'Linux'
       run: |
@@ -60,7 +56,6 @@ jobs:
         cp ffmpeg_extracted/ffprobe .
         chmod +x ffmpeg ffprobe
 
-    # --- 【找回】：将 FFmpeg 塞进安装包 ---
     - name: Build Executable with PyInstaller (Windows)
       if: runner.os == 'Windows'
       run: |
@@ -71,7 +66,6 @@ jobs:
       run: |
         pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" --collect-all customtkinter --collect-all tkinterdnd2 --copy-metadata imageio --copy-metadata moviepy --add-binary "ffmpeg:." --add-binary "ffprobe:." main.py
 
-    # --- 压缩打包结果 ---
     - name: Zip Build (Windows)
       if: runner.os == 'Windows'
       run: Compress-Archive -Path dist\SmartCutPro -DestinationPath SmartCutPro-Windows.zip
@@ -80,7 +74,6 @@ jobs:
       if: runner.os == 'Linux'
       run: tar -czvf SmartCutPro-Linux.tar.gz -C dist SmartCutPro
 
-    # --- 【核心修复】：分离上传步骤，防止找不到文件报错 ---
     - name: Upload to Release (Windows)
       if: runner.os == 'Windows'
       uses: softprops/action-gh-release@v2
