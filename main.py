@@ -1,19 +1,12 @@
 import sys
 import os
-import importlib.metadata
 import subprocess
+import shutil, atexit, logging, tempfile, time
+from ui.main_window import MainWindow
+from tkinterdnd2 import TkinterDnD
 
-# --- 【终极补丁 1】：欺骗 imageio，防止 PyInstaller 打包后找不到元数据崩溃 ---
-_original_version = importlib.metadata.version
-def _patched_version(pkg_name):
-    if pkg_name == 'imageio': return '2.33.0'
-    if pkg_name == 'moviepy': return '1.0.3'
-    try: return _original_version(pkg_name)
-    except importlib.metadata.PackageNotFoundError: return '0.0.0'
-importlib.metadata.version = _patched_version
-
-# --- 【终极补丁 2】：全局拦截 subprocess，彻底拯救 Linux 下的 FFmpeg ---
-# 这样不仅我们自己的代码，连 MoviePy 底层调用的 ffmpeg 也会被洗干净环境变量！
+# --- 全局拦截 subprocess，彻底拯救 Linux 下的 FFmpeg ---
+# --- 【终极补丁 2】：全局拦截 subprocess ---
 _old_popen = subprocess.Popen
 def _patched_popen(*args, **kwargs):
     if 'env' not in kwargs:
@@ -23,15 +16,16 @@ def _patched_popen(*args, **kwargs):
         elif 'LD_LIBRARY_PATH' in env:
             del env['LD_LIBRARY_PATH']
         kwargs['env'] = env
+
+    # --- 【新增】：Windows 下隐藏所有 FFmpeg/FFprobe 弹出的 CMD 黑窗口 ---
+    if os.name == 'nt':
+        if 'creationflags' not in kwargs:
+            kwargs['creationflags'] = 0x08000000  # 0x08000000 等于 subprocess.CREATE_NO_WINDOW
+
     return _old_popen(*args, **kwargs)
 subprocess.Popen = _patched_popen
 # --------------------------------------------------------
-
-import shutil, atexit, logging, tempfile, warnings, time
-from ui.main_window import MainWindow
-from tkinterdnd2 import TkinterDnD
-
-warnings.filterwarnings('ignore', category=UserWarning, module='moviepy')
+# --------------------------------------------------------
 
 def get_optimal_temp_dir():
     if os.name != 'nt' and os.path.exists('/dev/shm'):

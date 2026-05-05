@@ -9,12 +9,13 @@ else:
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 LOG_FILE = os.path.join(CONFIG_DIR, "app.log")
 os.makedirs(CONFIG_DIR, exist_ok=True)
-
+# --- 【修改】：将 crf 的默认值改为 17 ---
 DEFAULT_CONFIG = {
     "theme": "Light", "concurrency": 2, "last_watermark": "", "last_bgm": "",
     "last_bgm_vol": 0.2, "default_mode": 1, "auto_archive": True,
     "gpu_codec": "libx264", "ffmpeg_path": "", "app_style": "Standard",
-    "win_width": 1150, "win_height": 880, "win_x": 100, "win_y": 100, "pane_width": 310
+    "win_width": 1150, "win_height": 880, "win_x": 100, "win_y": 100, "pane_width": 310,
+    "templates": {}, "last_template": "默认配置", "crf": 17
 }
 
 class ConfigManager:

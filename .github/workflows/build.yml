@@ -17,7 +17,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os:[ubuntu-latest, windows-latest]
 
     steps:
     - name: Checkout Code
@@ -32,7 +32,7 @@ jobs:
       if: runner.os == 'Linux'
       run: |
         sudo apt-get update
-        sudo apt-get install -y ffmpeg libsdl2-mixer-2.0-0
+        sudo apt-get install -y libsdl2-mixer-2.0-0
 
     - name: Install Python Dependencies
       run: |
@@ -40,9 +40,36 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller
 
-    - name: Build Executable with PyInstaller
+    # --- 【核心升级】：自动下载 Windows 版 FFmpeg ---
+    - name: Download FFmpeg (Windows)
+      if: runner.os == 'Windows'
       run: |
-        pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" --collect-all customtkinter --collect-all tkinterdnd2 --copy-metadata imageio --copy-metadata moviepy main.py
+        Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile "ffmpeg.zip"
+        Expand-Archive -Path "ffmpeg.zip" -DestinationPath "ffmpeg_extracted"
+        Copy-Item "ffmpeg_extracted\ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe" -Destination "."
+        Copy-Item "ffmpeg_extracted\ffmpeg-master-latest-win64-gpl\bin\ffprobe.exe" -Destination "."
+
+    # --- 【核心升级】：自动下载 Linux 版 FFmpeg ---
+    - name: Download FFmpeg (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        wget https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+        mkdir ffmpeg_extracted
+        tar -xf ffmpeg-release-amd64-static.tar.xz -C ffmpeg_extracted --strip-components 1
+        cp ffmpeg_extracted/ffmpeg .
+        cp ffmpeg_extracted/ffprobe .
+        chmod +x ffmpeg ffprobe
+
+    # --- 【核心升级】：将下载好的 FFmpeg 塞进安装包 ---
+    - name: Build Executable with PyInstaller (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" --collect-all customtkinter --collect-all tkinterdnd2 --copy-metadata imageio --copy-metadata moviepy --add-binary "ffmpeg.exe;." --add-binary "ffprobe.exe;." main.py
+
+    - name: Build Executable with PyInstaller (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" --collect-all customtkinter --collect-all tkinterdnd2 --copy-metadata imageio --copy-metadata moviepy --add-binary "ffmpeg:." --add-binary "ffprobe:." main.py
 
     - name: Zip Build (Windows)
       if: runner.os == 'Windows'

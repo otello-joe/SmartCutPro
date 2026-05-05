@@ -2,24 +2,29 @@ import os
 import shutil
 import subprocess
 import threading
-import concurrent.futures
-import cv2
 import urllib.parse
-import warnings
 import pygame
-import re
 import logging
 import gc
-from queue import Queue
+import uuid
+from queue import Queue, Empty
 from PIL import Image, ImageOps
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
-warnings.filterwarnings("ignore", message=".*Given image is not CTKImage.*")
-from core.config_mgr import cfg, LOG_FILE
-from core.logic import split_by_scene_changes, crop_split_screen, add_watermark_only, get_dynamic_outdir, archive_original_file, setup_ffmpeg_env
+import warnings
+warnings.filterwarnings("ignore", message=".*Given image is not CTkImage.*")
+
+from core.config_mgr import cfg
+from core.logic import split_by_scene_changes, crop_split_screen, add_watermark_only, get_dynamic_outdir, archive_original_file, setup_ffmpeg_env, FFMPEG_EXE, CancelledError
+
+def get_clean_env():
+    env = os.environ.copy()
+    if 'LD_LIBRARY_PATH_ORIG' in env: env['LD_LIBRARY_PATH'] = env['LD_LIBRARY_PATH_ORIG']
+    elif 'LD_LIBRARY_PATH' in env: del env['LD_LIBRARY_PATH']
+    return env
 
 class UITextHandler(logging.Handler):
     def __init__(self, text_widget):
@@ -36,7 +41,7 @@ class UITextHandler(logging.Handler):
 
 def send_linux_notification(title, message):
     if os.name != 'nt':
-        try: subprocess.run(['notify-send', title, message], check=False)
+        try: subprocess.run(['notify-send', title, message], check=False, env=get_clean_env())
         except: pass
 
 class MainWindow(TkinterDnD.Tk):
@@ -51,6 +56,10 @@ class MainWindow(TkinterDnD.Tk):
         self.wm_img_ref = None; self.last_out_dir = ""; self.task_queue = Queue()
         self.current_wm_path = cfg.get("last_watermark", ""); self.current_bgm_path = cfg.get("last_bgm", "")
 
+        self.pause_event = threading.Event()
+        self.pause_event.set()
+        self.is_running = False
+
         ctk.set_appearance_mode(self.theme_mode)
         self.bg_col = ("#FFFFFF", "#121212"); self.list_bg = ("#FFFFFF", "#1A1A1A")
         self.card_col = ("#FFFFFF", "#242424"); self.border_col = ("#EEEEEE", "#2D2D2D")
@@ -59,7 +68,7 @@ class MainWindow(TkinterDnD.Tk):
         except: pass
         self.is_playing_bgm = False
 
-        self.title("SmartCut Pro - V62 Pro+ (Pure White Edition)")
+        self.title("SmartCut Pro - V1.1 (Pure White Edition)")
         w = cfg.get("win_width", 1150); h = cfg.get("win_height", 880)
         x = cfg.get("win_x", 100); y = cfg.get("win_y", 100)
         self.geometry(f"{w}x{h}+{x}+{y}")
@@ -103,17 +112,23 @@ class MainWindow(TkinterDnD.Tk):
         self.right_wrapper.grid_rowconfigure(0, weight=1)
         self.right_wrapper.grid_rowconfigure(1, weight=0)
 
-        self.tabs = ctk.CTkTabview(self.right_wrapper, fg_color=self.bg_col, segmented_button_selected_color="#0D6EFD", height=550)
+        self.tabs = ctk.CTkTabview(self.right_wrapper, fg_color=self.bg_col, segmented_button_selected_color="#0D6EFD", height=200)
         self.tabs.grid(row=0, column=0, sticky="nsew", padx=8, pady=5)
         tab_p = self.tabs.add("处理配置"); tab_s = self.tabs.add("系统设置")
         tab_p.configure(fg_color=self.bg_col); tab_s.configure(fg_color=self.bg_col)
         self._build_process_tab(tab_p); self._build_settings_tab(tab_s)
 
-        log_f = ctk.CTkFrame(self.right_wrapper, fg_color="transparent")
-        log_f.grid(row=1, column=0, sticky="ew", padx=15, pady=(10, 15))
-        ctk.CTkLabel(log_f, text="运行日志", font=ctk.CTkFont(size=11, weight="bold")).pack(anchor="w")
-        self.log_box = ctk.CTkTextbox(log_f, height=150, fg_color="#F9F9F9", text_color="#666666", font=ctk.CTkFont(family="Consolas", size=11), border_width=1, border_color=self.border_col, state="disabled")
-        self.log_box.pack(fill="x", pady=5)
+        self.log_f = ctk.CTkFrame(self.right_wrapper, fg_color="transparent")
+        self.log_f.grid(row=1, column=0, sticky="ew", padx=15, pady=(5, 15))
+        log_header = ctk.CTkFrame(self.log_f, fg_color="transparent")
+        log_header.pack(fill="x")
+        ctk.CTkLabel(log_header, text="运行日志", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left")
+        self.log_visible = True
+        self.toggle_log_btn = ctk.CTkButton(log_header, text="▼ 隐藏", width=50, height=24, font=ctk.CTkFont(size=11), fg_color="#EAEAEA", text_color="#333333", hover_color="#D0D0D0", command=self.toggle_log)
+        self.toggle_log_btn.pack(side="right")
+        self.log_box = ctk.CTkTextbox(self.log_f, height=150, fg_color="#F9F9F9", text_color="#666666", font=ctk.CTkFont(family="Consolas", size=11), border_width=1, border_color=self.border_col, state="disabled")
+        self.log_box.pack(fill="x", pady=(5, 0))
+
         handler = UITextHandler(self.log_box)
         handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s', '%H:%M:%S'))
         logging.getLogger().addHandler(handler)
@@ -123,10 +138,30 @@ class MainWindow(TkinterDnD.Tk):
         self.main_pane.add(self.right_wrapper, width=saved_pane_width, stretch="never")
         self._setup_scrolling_logic(self.scroll_list)
 
+    def toggle_log(self):
+        if self.log_visible:
+            self.log_box.pack_forget()
+            self.toggle_log_btn.configure(text="▲ 展开")
+            self.log_visible = False
+        else:
+            self.log_box.pack(fill="x", pady=(5, 0))
+            self.toggle_log_btn.configure(text="▼ 隐藏")
+            self.log_visible = True
+
     def _build_process_tab(self, parent):
         scroll_p = ctk.CTkScrollableFrame(parent, fg_color="transparent", corner_radius=0)
         scroll_p.pack(fill="both", expand=True)
         p = 12
+
+        ctk.CTkLabel(scroll_p, text="配置模板", font=ctk.CTkFont(weight="bold", size=12)).pack(anchor="w", padx=p, pady=(5, 2))
+        tpl_row = ctk.CTkFrame(scroll_p, fg_color="transparent")
+        tpl_row.pack(fill="x", padx=p, pady=(0, 8))
+        tpl_row.grid_columnconfigure(0, weight=1)
+        self.tpl_menu = ctk.CTkOptionMenu(tpl_row, values=["默认配置"], command=self._on_template_select)
+        self.tpl_menu.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        ctk.CTkButton(tpl_row, text="💾 保存", width=60, command=self._save_template).grid(row=0, column=1, padx=(0, 5))
+        ctk.CTkButton(tpl_row, text="🗑️", width=30, fg_color="#E74C3C", command=self._delete_template).grid(row=0, column=2)
+
         ctk.CTkLabel(scroll_p, text="模式选择", font=ctk.CTkFont(weight="bold", size=12)).pack(anchor="w", padx=p, pady=(5, 2))
         self.mode_switch = ctk.CTkSegmentedButton(scroll_p, values=["智能分割", "分屏裁切", "合成成品"], command=self._on_mode_change); self.mode_switch.pack(fill="x", padx=p, pady=2); self.mode_switch.set("智能分割")
         ctk.CTkLabel(scroll_p, text="资源管理", font=ctk.CTkFont(weight="bold", size=12)).pack(anchor="w", padx=p, pady=(10, 2))
@@ -152,44 +187,142 @@ class MainWindow(TkinterDnD.Tk):
         self.vol_slider = ctk.CTkSlider(vol_f, from_=0, to=1.5, height=16, command=self._on_vol_slide); self.vol_slider.pack(side="left", fill="x", expand=True)
         self.vol_entry = ctk.CTkEntry(vol_f, width=50, height=24, font=ctk.CTkFont(size=11), justify="center", fg_color=self.card_col, border_color=self.border_col)
         self.vol_entry.pack(side="right", padx=(10, 0)); self.vol_entry.insert(0, "0.20"); self.vol_entry.bind("<Return>", self._on_vol_entry_confirm)
-        self.start_btn = ctk.CTkButton(scroll_p, text="🚀 开启生产", height=45, font=ctk.CTkFont(size=15, weight="bold"), command=self.start_processing); self.start_btn.pack(fill="x", padx=p, pady=15)
+
+        btn_frame = ctk.CTkFrame(scroll_p, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=p, pady=15)
+        btn_frame.grid_columnconfigure(0, weight=1)
+        btn_frame.grid_columnconfigure(1, weight=1)
+
+        self.start_btn = ctk.CTkButton(btn_frame, text="🚀 开启生产", height=45, font=ctk.CTkFont(size=15, weight="bold"), command=self.start_processing)
+        self.start_btn.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+
+        self.pause_btn = ctk.CTkButton(btn_frame, text="⏸ 暂停", height=40, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#f39c12", hover_color="#e67e22", state="disabled", command=self.toggle_pause)
+        self.pause_btn.grid(row=1, column=0, sticky="ew", padx=(0, 5))
+
+        self.cancel_btn = ctk.CTkButton(btn_frame, text="⏹ 取消", height=40, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#e74c3c", hover_color="#c0392b", state="disabled", command=self.cancel_processing)
+        self.cancel_btn.grid(row=1, column=1, sticky="ew", padx=(5, 0))
+
         self.open_btn = ctk.CTkButton(scroll_p, text="📂 浏览输出", height=32, fg_color=("#F0F0F0", "#333333"), text_color=("#333333", "#FFFFFF"), font=ctk.CTkFont(size=12), state="disabled", command=self.open_last_dir); self.open_btn.pack(fill="x", padx=p, pady=(0, 15))
 
     def _build_settings_tab(self, parent):
         scroll_s = ctk.CTkScrollableFrame(parent, fg_color="transparent", corner_radius=0)
         scroll_s.pack(fill="both", expand=True)
         p = 15
+
+        # --- 【修复】：读取配置、默认 17，并解决文字截断问题 ---
+        ctk.CTkLabel(scroll_s, text="导出画质 (CRF)", font=ctk.CTkFont(weight="bold", size=12)).pack(anchor="w", padx=p, pady=(15, 2))
+        crf_frame = ctk.CTkFrame(scroll_s, fg_color="transparent")
+        crf_frame.pack(fill="x", padx=p, pady=2)
+
+        # 读取配置，如果没有则默认 17
+        current_crf = cfg.get("crf", 17)
+
+        self.crf_val_label = ctk.CTkLabel(crf_frame, text=str(current_crf), width=30)
+        self.crf_val_label.pack(side="right", padx=(10, 0))
+        self.crf_slider = ctk.CTkSlider(crf_frame, from_=17, to=25, number_of_steps=8, command=self._on_crf_slide)
+        self.crf_slider.pack(side="left", fill="x", expand=True)
+        self.crf_slider.set(current_crf)
+
+        # 增加 wraplength=260，让过长的文字自动换行，防止被截断
+        ctk.CTkLabel(scroll_s, text="* 说明：17为视觉无损(体积偏大)，23为标准推荐，25为高压缩(体积偏小)",
+                     font=ctk.CTkFont(size=11), text_color="#888888", justify="left", wraplength=260).pack(anchor="w", padx=p, pady=(2, 10))
+        # ---------------------------------
+
         ctk.CTkLabel(scroll_s, text="界面主题", font=ctk.CTkFont(weight="bold", size=12)).pack(anchor="w", padx=p, pady=(10, 2))
         self.theme_menu = ctk.CTkOptionMenu(scroll_s, values=["Light", "Dark"], height=26, command=self.change_theme); self.theme_menu.pack(fill="x", padx=p); self.theme_menu.set(self.theme_mode)
         ctk.CTkLabel(scroll_s, text="FFmpeg 路径", font=ctk.CTkFont(weight="bold", size=12)).pack(anchor="w", padx=p, pady=(15, 2))
         self.ff_entry = ctk.CTkEntry(scroll_s, height=26, font=ctk.CTkFont(size=11), fg_color=self.card_col, border_color=self.border_col); self.ff_entry.pack(fill="x", padx=p, pady=2); self.ff_entry.insert(0, cfg.get("ffmpeg_path", ""))
-        ctk.CTkButton(scroll_s, text="💾 保存路径", height=26, command=self.save_settings).pack(padx=p, pady=5)
-        ctk.CTkSwitch(scroll_s, text="完成后自动归档原片", font=ctk.CTkFont(size=12), variable=self.archive_var).pack(anchor="w", padx=p, pady=20)
+
+        # 保存按钮
+        ctk.CTkButton(scroll_s, text="💾 保存设置", height=26, command=self.save_settings).pack(padx=p, pady=15)
+        ctk.CTkSwitch(scroll_s, text="完成后自动归档原片", font=ctk.CTkFont(size=12), variable=self.archive_var).pack(anchor="w", padx=p, pady=10)
+
+    def _on_crf_slide(self, val):
+        self.crf_val_label.configure(text=str(int(val)))
+
+    def _refresh_template_menu(self):
+        templates = cfg.get("templates", {})
+        vals = ["默认配置"] + list(templates.keys())
+        self.tpl_menu.configure(values=vals)
+        last_tpl = cfg.get("last_template", "默认配置")
+        if last_tpl in vals: self.tpl_menu.set(last_tpl)
+        else: self.tpl_menu.set("默认配置")
+
+    def _on_template_select(self, tpl_name):
+        cfg.set("last_template", tpl_name)
+        if tpl_name == "默认配置": return
+        templates = cfg.get("templates", {})
+        if tpl_name in templates:
+            t = templates[tpl_name]
+            mode_val = t.get("mode", 1)
+            self.mode_var.set(mode_val)
+            mode_str = {1: "智能分割", 2: "分屏裁切", 3: "合成成品"}.get(mode_val, "智能分割")
+            self.mode_switch.set(mode_str)
+            self.current_wm_path = t.get("wm", "")
+            self.current_bgm_path = t.get("bgm", "")
+            speed = t.get("speed", 1.0)
+            self.speed_slider.set(speed)
+            self.speed_entry.delete(0, tk.END); self.speed_entry.insert(0, f"{speed:.2f}")
+            vol = t.get("vol", 0.2)
+            self.vol_slider.set(vol)
+            self.vol_entry.delete(0, tk.END); self.vol_entry.insert(0, f"{vol:.2f}")
+            self._update_previews()
+
+    def _save_template(self):
+        dialog = ctk.CTkInputDialog(text="请输入新模板名称:", title="保存模板")
+        name = dialog.get_input()
+        if name:
+            name = name.strip()
+            if name == "默认配置":
+                messagebox.showwarning("警告", "不能覆盖默认配置名称！")
+                return
+            templates = cfg.get("templates", {})
+            templates[name] = {"mode": self.mode_var.get(), "wm": self.current_wm_path, "bgm": self.current_bgm_path, "speed": self.speed_slider.get(), "vol": self.vol_slider.get()}
+            cfg.set("templates", templates)
+            cfg.set("last_template", name)
+            self._refresh_template_menu()
+            messagebox.showinfo("成功", f"模板 '{name}' 已保存！")
+
+    def _delete_template(self):
+        name = self.tpl_menu.get()
+        if name == "默认配置": return
+        if messagebox.askyesno("确认", f"确定要删除模板 '{name}' 吗？"):
+            templates = cfg.get("templates", {})
+            if name in templates:
+                del templates[name]
+                cfg.set("templates", templates)
+                cfg.set("last_template", "默认配置")
+                self._refresh_template_menu()
+                self._on_template_select("默认配置")
 
     def _update_previews(self):
-        self.wm_preview_box.configure(image="", text="无水印预览")
-        if hasattr(self.wm_preview_box, "_image_holder"): del self.wm_preview_box._image_holder
-        self.wm_img_ref = None; self.update()
+        # --- 【核心修复】：使用 1x1 透明图片清空预览，彻底解决 TclError 崩溃和红字警告 ---
+        empty_img = ctk.CTkImage(Image.new("RGBA", (1, 1), (0, 0, 0, 0)), size=(1, 1))
+        self.wm_preview_box.configure(image=empty_img, text="无水印预览")
+        self.wm_img_ref = empty_img
+        self.update()
+
         if self.current_wm_path and os.path.exists(self.current_wm_path):
             try:
                 def render():
                     if not self.current_wm_path: return
                     try:
                         raw = Image.open(self.current_wm_path).convert("RGBA")
-                        raw = ImageOps.contain(raw, (220, 100))
+                        raw.thumbnail((220, 100), Image.Resampling.LANCZOS)
                         self.wm_img_ref = ctk.CTkImage(light_image=raw, dark_image=raw, size=(raw.width, raw.height))
                         self.wm_preview_box.configure(image=self.wm_img_ref, text="")
-                        self.wm_preview_box._image_holder = self.wm_img_ref
                     except: pass
                 self.after(10, render)
             except: self.wm_preview_box.configure(text="❌ 水印加载失败")
+
         if self.current_bgm_path and os.path.exists(self.current_bgm_path):
             self.bgm_preview_label.configure(text=f"🎵 {os.path.basename(self.current_bgm_path)[:22]}...", text_color="#0D6EFD")
         else: self.bgm_preview_label.configure(text="无音频预览", text_color="#888888")
 
     def clear_watermark(self):
-        self.current_wm_path = ""; cfg.set("last_watermark", "")
-        self.wm_preview_box.configure(image="", text="无水印预览"); self._update_previews()
+        self.current_wm_path = ""
+        cfg.set("last_watermark", "")
+        self._update_previews()
 
     def select_all(self):
         for var in self.file_vars.values(): var.set(True)
@@ -203,9 +336,38 @@ class MainWindow(TkinterDnD.Tk):
             for i in range(start, end + 1): self.file_vars[self.selected_files[i]].set(target_state)
         self.last_clicked_index = current_idx
 
+    def toggle_pause(self):
+        if self.pause_event.is_set():
+            self.pause_event.clear()
+            self.pause_btn.configure(text="▶ 继续", fg_color="#2ecc71", hover_color="#27ae60")
+            self.info_label.configure(text="⏸ 任务已暂停")
+        else:
+            self.pause_event.set()
+            self.pause_btn.configure(text="⏸ 暂停", fg_color="#f39c12", hover_color="#e67e22")
+            self.info_label.configure(text="▶ 任务处理中...")
+
+    def cancel_processing(self):
+        if not messagebox.askyesno("确认取消", "确定要取消所有正在进行的任务吗？"): return
+        while not self.task_queue.empty():
+            try:
+                self.task_queue.get_nowait()
+                self.task_queue.task_done()
+            except: break
+        for event in self.stop_events.values(): event.set()
+        if not self.pause_event.is_set(): self.pause_event.set()
+        self.info_label.configure(text="⏹ 任务已取消")
+        self._reset_btn_states()
+
+    def _reset_btn_states(self):
+        self.start_btn.configure(state="normal", text="🚀 开启生产")
+        self.pause_btn.configure(state="disabled", text="⏸ 暂停", fg_color="#f39c12", hover_color="#e67e22")
+        self.cancel_btn.configure(state="disabled")
+        self.open_btn.configure(state="normal")
+
     def start_processing(self):
         to_process =[f for f in self.selected_files if self.file_vars[f].get() and f not in self.processing_files]
         if not to_process: return
+
         try:
             target_dir = os.path.dirname(to_process[0])
             _, _, free = shutil.disk_usage(target_dir)
@@ -213,12 +375,29 @@ class MainWindow(TkinterDnD.Tk):
                 if not messagebox.askyesno("空间警告", "磁盘剩余空间不足 1GB，可能会导致渲染失败。是否继续？"): return
         except: pass
 
-        concurrency = int(cfg.get("concurrency", 2))
-        if concurrency <= 0: concurrency = max(1, os.cpu_count() // 2)
-        snapshot = {"mode": self.mode_var.get(), "wm": self.current_wm_path, "bgm": self.current_bgm_path, "vol": self.vol_slider.get(), "speed": self.speed_slider.get(), "codec": "libx264"}
+        # --- 【修改】：将 CRF 传入快照 ---
+        snapshot = {
+            "mode": self.mode_var.get(), "wm": self.current_wm_path,
+            "bgm": self.current_bgm_path, "vol": self.vol_slider.get(),
+            "speed": self.speed_slider.get(), "crf": int(self.crf_slider.get())
+        }
 
         for f in to_process:
             self.processing_files.add(f); self.file_vars[f].set(False); self.task_queue.put((f, snapshot))
+
+        if self.is_running:
+            self.info_label.configure(text=f"➕ 已追加 {len(to_process)} 个任务到队列")
+            return
+
+        self.is_running = True
+        self.info_label.configure(text="▶ 任务处理中...")
+        self.start_btn.configure(text="➕ 追加")
+        self.pause_btn.configure(state="normal", text="⏸ 暂停", fg_color="#f39c12", hover_color="#e67e22")
+        self.cancel_btn.configure(state="normal")
+        self.pause_event.set()
+
+        concurrency = int(cfg.get("concurrency", 2))
+        if concurrency <= 0: concurrency = max(1, os.cpu_count() // 2)
 
         for _ in range(concurrency):
             threading.Thread(target=self._queue_worker, daemon=True).start()
@@ -226,9 +405,11 @@ class MainWindow(TkinterDnD.Tk):
         threading.Thread(target=self._monitor_queue, daemon=True).start()
 
     def _queue_worker(self):
-        while not self.task_queue.empty():
-            try: fp, params = self.task_queue.get_nowait()
-            except: break
+        while self.is_running:
+            self.pause_event.wait()
+            try: fp, params = self.task_queue.get(timeout=0.5)
+            except Empty: continue
+            except Exception: break
             self._worker(fp, params)
             self.task_queue.task_done()
 
@@ -237,23 +418,43 @@ class MainWindow(TkinterDnD.Tk):
         self.after(0, self._finalize_processing)
 
     def _finalize_processing(self):
-        self.open_btn.configure(state="normal")
+        self.is_running = False
+        self._reset_btn_states()
         self.info_label.configure(text="✅ 队列任务处理完毕")
         send_linux_notification("SmartCut Pro", "所有视频处理任务已完成！🚀")
 
     def _worker(self, fp, p):
+        if not os.path.exists(fp):
+            self.update_status(fp, "文件丢失", "#e74c3c")
+            if fp in self.processing_files: self.processing_files.remove(fp)
+            return
+
+        self.pause_event.wait()
+        if self.stop_events[fp].is_set():
+            self.update_status(fp, "已取消", "#e74c3c")
+            if fp in self.processing_files: self.processing_files.remove(fp)
+            return
+
         try:
             self.last_out_dir = get_dynamic_outdir(fp)
             pcb, scb = lambda v: self.update_progress(fp, v), lambda t, c=None: self.update_status(fp, t, c)
             scb("处理中", "#0D6EFD")
             res = {}
-            if p["mode"] == 1: res = split_by_scene_changes(fp, self.stop_events[fp], pcb, scb, self.temp_dir, **p)
-            elif p["mode"] == 2: res = crop_split_screen(fp, self.stop_events[fp], pcb, scb, self.temp_dir, **p)
-            elif p["mode"] == 3: res = add_watermark_only(fp, self.stop_events[fp], pcb, scb, self.temp_dir, **p)
-            if res and res.get("status") == "Success":
+            if p["mode"] == 1: res = split_by_scene_changes(fp, self.stop_events[fp], self.pause_event, pcb, scb, self.temp_dir, **p)
+            elif p["mode"] == 2: res = crop_split_screen(fp, self.stop_events[fp], self.pause_event, pcb, scb, self.temp_dir, **p)
+            elif p["mode"] == 3: res = add_watermark_only(fp, self.stop_events[fp], self.pause_event, pcb, scb, self.temp_dir, **p)
+
+            if self.stop_events[fp].is_set():
+                self.update_status(fp, "已取消", "#e74c3c")
+            elif res and res.get("status") == "Success":
                 self.update_status(fp, "成功", "#198754")
-                if self.archive_var.get(): archive_original_file(fp); self.after(2000, lambda: self._remove_task(fp, self.file_ui_elements[fp]["frame"]))
+                if self.archive_var.get():
+                    archive_original_file(fp)
+                    if fp in self.selected_files: self.selected_files.remove(fp)
+                    self.after(2000, lambda: self._remove_task(fp, self.file_ui_elements[fp]["frame"]))
             else: self.update_status(fp, "跳过", "#f39c12")
+        except CancelledError:
+            self.update_status(fp, "已取消", "#e74c3c")
         except Exception as e:
             logging.error(f"处理 {fp} 失败: {e}"); self.update_status(fp, "失败", "#e74c3c")
         finally:
@@ -261,11 +462,21 @@ class MainWindow(TkinterDnD.Tk):
             gc.collect()
 
     def update_status(self, fp, txt, col=None):
-        if fp in self.file_ui_elements:
-            if col: self.after(0, lambda: self.file_ui_elements[fp]["status"].configure(text=txt, text_color=col))
-            else: self.after(0, lambda: self.file_ui_elements[fp]["status"].configure(text=txt))
+        def _update():
+            if fp in self.file_ui_elements:
+                try:
+                    if col: self.file_ui_elements[fp]["status"].configure(text=txt, text_color=col)
+                    else: self.file_ui_elements[fp]["status"].configure(text=txt)
+                except: pass
+        self.after(0, _update)
+
     def update_progress(self, fp, val):
-        if fp in self.file_ui_elements: self.after(0, lambda: self.file_ui_elements[fp]["bar"].set(val/100))
+        def _update():
+            if fp in self.file_ui_elements:
+                try: self.file_ui_elements[fp]["bar"].set(val/100)
+                except: pass
+        self.after(0, _update)
+
     def _add_file_to_ui(self, fp):
         if self.placeholder: self.placeholder.destroy(); self.placeholder = None
         item = ctk.CTkFrame(self.scroll_list, height=60, fg_color=self.card_col, corner_radius=6, border_width=1, border_color=self.border_col)
@@ -273,20 +484,43 @@ class MainWindow(TkinterDnD.Tk):
         var = tk.BooleanVar(value=True); self.file_vars[fp] = var
         chk = ctk.CTkCheckBox(item, text="", variable=var, width=20); chk.grid(row=0, column=0, padx=(8, 2))
         item.bind("<Button-1>", lambda e: self._handle_click(e, fp)); chk.bind("<Button-1>", lambda e: self._handle_click(e, fp))
+
         try:
-            cap = cv2.VideoCapture(fp); cap.set(cv2.CAP_PROP_POS_MSEC, 500); ret, frame = cap.read(); cap.release()
-            if ret:
-                img = ImageOps.fit(Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)), (70, 40), Image.Resampling.LANCZOS)
-                thumb = ctk.CTkLabel(item, text="", image=ctk.CTkImage(img, size=(70, 40))); thumb.grid(row=0, column=1, padx=5, pady=8)
+            thumb_path = os.path.join(self.temp_dir, f"thumb_{uuid.uuid4().hex[:8]}.jpg")
+            cmd =[FFMPEG_EXE, '-y', '-i', fp, '-ss', '00:00:00.500', '-vframes', '1', thumb_path]
+            subprocess.run(cmd, capture_output=True, env=get_clean_env())
+
+            if os.path.exists(thumb_path):
+                img = Image.open(thumb_path).convert("RGB")
+                img = ImageOps.fit(img, (70, 40), Image.Resampling.LANCZOS)
+                thumb = ctk.CTkLabel(item, text="", image=ctk.CTkImage(img, size=(70, 40)))
+                thumb.grid(row=0, column=1, padx=5, pady=8)
                 thumb.bind("<Button-1>", lambda e: self._handle_click(e, fp))
-            else: ctk.CTkLabel(item, text="🎬", width=70).grid(row=0, column=1, padx=5)
-        except: ctk.CTkLabel(item, text="🎬", width=70).grid(row=0, column=1, padx=5)
-        info_f = ctk.CTkFrame(item, fg_color="transparent"); info_f.grid(row=0, column=2, sticky="ew", padx=8)
-        fname = os.path.basename(fp); display_name = fname if len(fname) < 45 else fname[:20] + "..." + fname[-20:]
-        ctk.CTkLabel(info_f, text=display_name, font=ctk.CTkFont(size=12, weight="bold"), anchor="w").pack(side="top", fill="x")
-        pb = ctk.CTkProgressBar(info_f, height=5, progress_color="#0D6EFD"); pb.pack(side="top", fill="x", pady=(2, 0)); pb.set(0)
+                try: os.remove(thumb_path)
+                except: pass
+            else:
+                ctk.CTkLabel(item, text="🎬", width=70).grid(row=0, column=1, padx=5)
+        except Exception as e:
+            logging.error(f"缩略图截取失败: {e}")
+            ctk.CTkLabel(item, text="🎬", width=70).grid(row=0, column=1, padx=5)
+
+        info_f = ctk.CTkFrame(item, fg_color="transparent")
+        info_f.grid(row=0, column=2, sticky="ew", padx=8)
+        info_f.grid_columnconfigure(0, weight=1)
+
+        fname = os.path.basename(fp)
+        display_name = fname if len(fname) < 40 else fname[:18] + "..." + fname[-18:]
+
+        name_lbl = ctk.CTkLabel(info_f, text=display_name, font=ctk.CTkFont(size=12, weight="bold"), anchor="w")
+        name_lbl.grid(row=0, column=0, sticky="ew")
+
+        pb = ctk.CTkProgressBar(info_f, height=5, progress_color="#0D6EFD")
+        pb.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        pb.set(0)
+
         st = ctk.CTkLabel(item, text="就绪", font=ctk.CTkFont(size=11), text_color="#888888", width=60); st.grid(row=0, column=3, padx=10)
         self.stop_events[fp] = threading.Event()
+
         ctk.CTkButton(item, text="×", width=22, height=22, fg_color="transparent", text_color="#bdc3c7", command=lambda f=fp, w=item: self._remove_task(f, w)).grid(row=0, column=4, padx=(0, 8))
         self.file_ui_elements[fp] = {"frame": item, "status": st, "bar": pb}
         self._apply_scroll_to_new_item(item)
@@ -299,7 +533,7 @@ class MainWindow(TkinterDnD.Tk):
             else: canvas.yview_scroll(int(-1*(e.delta/120)), "units")
         def bind_r(w):
             w.bind("<Button-4>", _on_mw, add="+"); w.bind("<Button-5>", _on_mw, add="+"); w.bind("<MouseWheel>", _on_mw, add="+")
-            for c in w.winfo_children(): bind_r(c)
+            for c in w.children.values(): bind_r(c)
         bind_r(scroll_frame)
         canvas.bind("<Button-2>", lambda e: canvas.scan_mark(canvas.canvasx(e.x), canvas.canvasy(e.y)))
         canvas.bind("<B2-Motion>", lambda e: canvas.scan_dragto(canvas.canvasx(e.x), canvas.canvasy(e.y), gain=1))
@@ -312,14 +546,27 @@ class MainWindow(TkinterDnD.Tk):
                 pygame.mixer.music.load(self.current_bgm_path); pygame.mixer.music.set_volume(self.vol_slider.get()); pygame.mixer.music.play(); self.audio_btn.configure(text="■ 停止"); self.is_playing_bgm = True
             except: pass
     def change_theme(self, new_theme): ctk.set_appearance_mode(new_theme); cfg.set("theme", new_theme); self.after(50, self._apply_root_theme)
-    def _restore_settings(self): self._update_previews()
-    def save_settings(self): cfg.set("ffmpeg_path", self.ff_entry.get().strip()); setup_ffmpeg_env(); messagebox.showinfo("成功", "保存成功")
+
+    def _restore_settings(self):
+        self._refresh_template_menu()
+        last_tpl = cfg.get("last_template", "默认配置")
+        if last_tpl != "默认配置":
+            self._on_template_select(last_tpl)
+        self._update_previews()
+
+    def save_settings(self):
+        # --- 【修复】：点击保存按钮时，将当前的 CRF 值写入配置文件 ---
+        cfg.set("ffmpeg_path", self.ff_entry.get().strip())
+        cfg.set("crf", int(self.crf_slider.get()))
+        setup_ffmpeg_env()
+        messagebox.showinfo("成功", "设置已保存！")
+
     def browse_watermark(self):
         f = self._ask_file_via_dolphin("选择水印", "图片",["*.png", "*.jpg"])
         if f: self.current_wm_path = f; cfg.set("last_watermark", f); self._update_previews()
     def clear_bgm(self): self.current_bgm_path = ""; cfg.set("last_bgm", ""); self._update_previews()
     def browse_bgm(self):
-        f = self._ask_file_via_dolphin("选择音乐", "音频", ["*.mp3", "*.wav", "*.m4a"])
+        f = self._ask_file_via_dolphin("选择音乐", "音频",["*.mp3", "*.wav", "*.m4a"])
         if f: self.current_bgm_path = f; cfg.set("last_bgm", f); self._update_previews()
     def browse_files(self):
         f_list = self._ask_file_via_dolphin("选择视频", "视频",["*.mp4", "*.mov", "*.mkv"], multiple=True)
@@ -327,17 +574,20 @@ class MainWindow(TkinterDnD.Tk):
             for f in f_list:
                 if f not in self.selected_files: self.selected_files.append(f); self._add_file_to_ui(f)
             self._check_empty_state()
+
     def _remove_task(self, f, w):
+        if f in self.stop_events: self.stop_events[f].set()
         if f in self.selected_files: self.selected_files.remove(f)
         if f in self.processing_files: self.processing_files.remove(f)
         w.destroy(); self._check_empty_state()
+
     def clear_files(self):
         for w in self.scroll_list.winfo_children(): w.destroy()
         self.selected_files.clear(); self.file_ui_elements.clear(); self.processing_files.clear(); self.placeholder = None; self._check_empty_state()
     def open_last_dir(self):
         if self.last_out_dir:
             try:
-                if os.name != 'nt': subprocess.run(['xdg-open', self.last_out_dir])
+                if os.name != 'nt': subprocess.run(['xdg-open', self.last_out_dir], env=get_clean_env())
                 else: subprocess.run(['explorer', self.last_out_dir])
             except: pass
     def _check_empty_state(self):
@@ -364,16 +614,26 @@ class MainWindow(TkinterDnD.Tk):
                     if clean_f not in self.selected_files: self.selected_files.append(clean_f); self._add_file_to_ui(clean_f)
             self.update_idletasks(); self._check_empty_state()
         except: pass
+
     def _ask_file_via_dolphin(self, title, filter_label, ext_list, multiple=False):
         if os.name != 'nt':
             kdialog = shutil.which("kdialog")
             if kdialog:
                 cmd =[kdialog, "--title", title, "--getopenfilename", os.getcwd(), f"{filter_label} ({' '.join(ext_list)})"]
                 if multiple: cmd.insert(3, "--multiple"); cmd.insert(4, "--separate-output")
-                res = subprocess.run(cmd, capture_output=True, text=True)
+                res = subprocess.run(cmd, capture_output=True, text=True, env=get_clean_env())
                 if res.returncode != 0 or not res.stdout.strip(): return None
-                return res.stdout.strip().split('\n') if multiple else res.stdout.strip()
-        return filedialog.askopenfilenames(title=title) if multiple else filedialog.askopenfilename(title=title)
+                paths = res.stdout.strip().split('\n')
+                cleaned_paths =[urllib.parse.unquote(p.replace('file://', '').strip()) for p in paths]
+                return cleaned_paths if multiple else cleaned_paths[0]
+
+        if multiple:
+            res = filedialog.askopenfilenames(title=title)
+            return list(res) if res else None
+        else:
+            res = filedialog.askopenfilename(title=title)
+            return res if res else None
+
     def _on_mode_change(self, val): self.mode_var.set({"智能分割": 1, "分屏裁切": 2, "合成成品": 3}[val])
 
     def _on_speed_slide(self, val):

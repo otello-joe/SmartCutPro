@@ -1,12 +1,17 @@
 from proglog import ProgressBarLogger
 
 class GUIProgressBarLogger(ProgressBarLogger):
-    def __init__(self, progress_callback, start_offset=0.0, scale=1.0):
+    def __init__(self, progress_callback, start_offset=0.0, scale=1.0, pause_event=None):
         super().__init__()
         self.progress_callback = progress_callback
         self.start_offset = start_offset
         self.scale = scale
+        self.pause_event = pause_event
+
     def bars_callback(self, bar, attr, value, old_value=None):
+        if self.pause_event:
+            self.pause_event.wait()
+
         if attr == 'index':
             total = self.bars[bar]['total']
             if total > 0:
