@@ -55,16 +55,16 @@ jobs:
         cp ffmpeg_extracted/ffprobe .
         chmod +x ffmpeg ffprobe
 
-    # --- 【核心修复】：去掉了 --copy-metadata，保留了 --hidden-import PIL._tkinter_finder ---
+# --- 【核心升级】：增加 --icon 和 --add-data 打包图标 ---
     - name: Build Executable with PyInstaller (Windows)
       if: runner.os == 'Windows'
       run: |
-        pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" --collect-all customtkinter --collect-all tkinterdnd2 --hidden-import PIL._tkinter_finder --add-binary "ffmpeg.exe;." --add-binary "ffprobe.exe;." main.py
+        pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" --icon "assets\256.ico" --add-data "assets;assets" --collect-all customtkinter --collect-all tkinterdnd2 --hidden-import PIL._tkinter_finder --add-binary "ffmpeg.exe;." --add-binary "ffprobe.exe;." main.py
 
     - name: Build Executable with PyInstaller (Linux)
       if: runner.os == 'Linux'
       run: |
-        pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" --collect-all customtkinter --collect-all tkinterdnd2 --hidden-import PIL._tkinter_finder --add-binary "ffmpeg:." --add-binary "ffprobe:." main.py
+        pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" --icon "assets/256.ico" --add-data "assets:assets" --collect-all customtkinter --collect-all tkinterdnd2 --hidden-import PIL._tkinter_finder --add-binary "ffmpeg:." --add-binary "ffprobe:." main.py
 
     - name: Zip Build (Windows)
       if: runner.os == 'Windows'

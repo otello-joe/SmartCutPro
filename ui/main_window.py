@@ -13,12 +13,25 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
 from tkinterdnd2 import DND_FILES, TkinterDnD
-
+from PIL import Image, ImageOps, ImageTk
+import sys # 确保顶部导入了 sys
 import warnings
 warnings.filterwarnings("ignore", message=".*Given image is not CTkImage.*")
 
 from core.config_mgr import cfg
 from core.logic import split_by_scene_changes, crop_split_screen, add_watermark_only, get_dynamic_outdir, archive_original_file, setup_ffmpeg_env, FFMPEG_EXE, CancelledError
+
+# --- 【核心修复】：定义全局系统字体，彻底解决 Windows 字体发虚发毛的问题 ---
+SYS_FONT = "Microsoft YaHei" if os.name == "nt" else "sans-serif"
+# ------------------------------------------------------------------------
+def resource_path(relative_path):
+    """获取资源的绝对路径，兼容开发环境和 PyInstaller 打包环境"""
+    try:
+        # PyInstaller 创建临时文件夹，将路径存入 _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
 def get_clean_env():
     env = os.environ.copy()
@@ -74,6 +87,18 @@ class MainWindow(TkinterDnD.Tk):
         self.geometry(f"{w}x{h}+{x}+{y}")
         self.minsize(650, 450)
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
+        icon_path = resource_path(os.path.join("assets", "256.ico"))
+        if os.path.exists(icon_path):
+            try:
+                if os.name == 'nt':
+                    self.iconbitmap(icon_path) # Windows 专用
+                else:
+                    # Linux 兼容方案
+                    icon_img = ImageTk.PhotoImage(Image.open(icon_path))
+                    self.iconphoto(False, icon_img)
+            except Exception as e:
+                logging.error(f"加载图标失败: {e}")
+        # --------------------------------------
 
         self._build_ui()
         self._init_dnd_logic()
@@ -95,16 +120,16 @@ class MainWindow(TkinterDnD.Tk):
         self.left_wrapper.grid_columnconfigure(0, weight=1); self.left_wrapper.grid_rowconfigure(1, weight=1)
         header = ctk.CTkFrame(self.left_wrapper, fg_color="transparent")
         header.grid(row=0, column=0, sticky="ew", padx=15, pady=(10, 5))
-        ctk.CTkLabel(header, text="任务指挥中心", font=ctk.CTkFont(size=18, weight="bold")).pack(side="left")
+        ctk.CTkLabel(header, text="任务指挥中心", font=ctk.CTkFont(family=SYS_FONT, size=18, weight="bold")).pack(side="left")
         btn_group = ctk.CTkFrame(header, fg_color="transparent"); btn_group.pack(side="right")
-        ctk.CTkButton(btn_group, text="全选", width=35, height=26, fg_color="#34495e", command=self.select_all).pack(side="left", padx=2)
-        ctk.CTkButton(btn_group, text="反选", width=35, height=26, fg_color="#7f8c8d", command=self.toggle_selection).pack(side="left", padx=2)
-        ctk.CTkButton(btn_group, text="+ 导入", width=60, height=26, command=self.browse_files).pack(side="left", padx=4)
-        ctk.CTkButton(btn_group, text="清空", width=50, height=26, fg_color="#FF5252", command=self.clear_files).pack(side="left", padx=2)
+        ctk.CTkButton(btn_group, text="全选", width=35, height=26, fg_color="#34495e", font=ctk.CTkFont(family=SYS_FONT, size=12), command=self.select_all).pack(side="left", padx=2)
+        ctk.CTkButton(btn_group, text="反选", width=35, height=26, fg_color="#7f8c8d", font=ctk.CTkFont(family=SYS_FONT, size=12), command=self.toggle_selection).pack(side="left", padx=2)
+        ctk.CTkButton(btn_group, text="+ 导入", width=60, height=26, font=ctk.CTkFont(family=SYS_FONT, size=12), command=self.browse_files).pack(side="left", padx=4)
+        ctk.CTkButton(btn_group, text="清空", width=50, height=26, fg_color="#FF5252", font=ctk.CTkFont(family=SYS_FONT, size=12), command=self.clear_files).pack(side="left", padx=2)
         self.scroll_list = ctk.CTkScrollableFrame(self.left_wrapper, fg_color=self.list_bg, corner_radius=8, border_width=1, border_color=self.border_col)
         self.scroll_list.grid(row=1, column=0, sticky="nsew", padx=15, pady=(0, 10))
-        self.placeholder = ctk.CTkLabel(self.scroll_list, text="拖拽视频至此处", text_color="#BDBDBD", font=ctk.CTkFont(size=13)); self.placeholder.pack(expand=True, pady=100)
-        self.info_label = ctk.CTkLabel(self.left_wrapper, text="准备就绪", text_color="#888888", font=ctk.CTkFont(size=11), anchor="w"); self.info_label.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 10))
+        self.placeholder = ctk.CTkLabel(self.scroll_list, text="拖拽视频至此处", text_color="#BDBDBD", font=ctk.CTkFont(family=SYS_FONT, size=13)); self.placeholder.pack(expand=True, pady=100)
+        self.info_label = ctk.CTkLabel(self.left_wrapper, text="准备就绪", text_color="#888888", font=ctk.CTkFont(family=SYS_FONT, size=11), anchor="w"); self.info_label.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 10))
         self.main_pane.add(self.left_wrapper, stretch="always")
 
         self.right_wrapper = ctk.CTkFrame(self.main_pane, fg_color=self.bg_col, corner_radius=0)
@@ -122,9 +147,9 @@ class MainWindow(TkinterDnD.Tk):
         self.log_f.grid(row=1, column=0, sticky="ew", padx=15, pady=(5, 15))
         log_header = ctk.CTkFrame(self.log_f, fg_color="transparent")
         log_header.pack(fill="x")
-        ctk.CTkLabel(log_header, text="运行日志", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left")
+        ctk.CTkLabel(log_header, text="运行日志", font=ctk.CTkFont(family=SYS_FONT, size=11, weight="bold")).pack(side="left")
         self.log_visible = True
-        self.toggle_log_btn = ctk.CTkButton(log_header, text="▼ 隐藏", width=50, height=24, font=ctk.CTkFont(size=11), fg_color="#EAEAEA", text_color="#333333", hover_color="#D0D0D0", command=self.toggle_log)
+        self.toggle_log_btn = ctk.CTkButton(log_header, text="▼ 隐藏", width=50, height=24, font=ctk.CTkFont(family=SYS_FONT, size=11), fg_color="#EAEAEA", text_color="#333333", hover_color="#D0D0D0", command=self.toggle_log)
         self.toggle_log_btn.pack(side="right")
         self.log_box = ctk.CTkTextbox(self.log_f, height=150, fg_color="#F9F9F9", text_color="#666666", font=ctk.CTkFont(family="Consolas", size=11), border_width=1, border_color=self.border_col, state="disabled")
         self.log_box.pack(fill="x", pady=(5, 0))
@@ -153,39 +178,39 @@ class MainWindow(TkinterDnD.Tk):
         scroll_p.pack(fill="both", expand=True)
         p = 12
 
-        ctk.CTkLabel(scroll_p, text="配置模板", font=ctk.CTkFont(weight="bold", size=12)).pack(anchor="w", padx=p, pady=(5, 2))
+        ctk.CTkLabel(scroll_p, text="配置模板", font=ctk.CTkFont(family=SYS_FONT, weight="bold", size=12)).pack(anchor="w", padx=p, pady=(5, 2))
         tpl_row = ctk.CTkFrame(scroll_p, fg_color="transparent")
         tpl_row.pack(fill="x", padx=p, pady=(0, 8))
         tpl_row.grid_columnconfigure(0, weight=1)
-        self.tpl_menu = ctk.CTkOptionMenu(tpl_row, values=["默认配置"], command=self._on_template_select)
+        self.tpl_menu = ctk.CTkOptionMenu(tpl_row, values=["默认配置"], font=ctk.CTkFont(family=SYS_FONT, size=12), dropdown_font=ctk.CTkFont(family=SYS_FONT, size=12), command=self._on_template_select)
         self.tpl_menu.grid(row=0, column=0, sticky="ew", padx=(0, 5))
-        ctk.CTkButton(tpl_row, text="💾 保存", width=60, command=self._save_template).grid(row=0, column=1, padx=(0, 5))
-        ctk.CTkButton(tpl_row, text="🗑️", width=30, fg_color="#E74C3C", command=self._delete_template).grid(row=0, column=2)
+        ctk.CTkButton(tpl_row, text="💾 保存", width=60, font=ctk.CTkFont(family=SYS_FONT, size=12), command=self._save_template).grid(row=0, column=1, padx=(0, 5))
+        ctk.CTkButton(tpl_row, text="🗑️", width=30, fg_color="#E74C3C", font=ctk.CTkFont(family=SYS_FONT, size=12), command=self._delete_template).grid(row=0, column=2)
 
-        ctk.CTkLabel(scroll_p, text="模式选择", font=ctk.CTkFont(weight="bold", size=12)).pack(anchor="w", padx=p, pady=(5, 2))
-        self.mode_switch = ctk.CTkSegmentedButton(scroll_p, values=["智能分割", "分屏裁切", "合成成品"], command=self._on_mode_change); self.mode_switch.pack(fill="x", padx=p, pady=2); self.mode_switch.set("智能分割")
-        ctk.CTkLabel(scroll_p, text="资源管理", font=ctk.CTkFont(weight="bold", size=12)).pack(anchor="w", padx=p, pady=(10, 2))
+        ctk.CTkLabel(scroll_p, text="模式选择", font=ctk.CTkFont(family=SYS_FONT, weight="bold", size=12)).pack(anchor="w", padx=p, pady=(5, 2))
+        self.mode_switch = ctk.CTkSegmentedButton(scroll_p, values=["智能分割", "分屏裁切", "合成成品"], font=ctk.CTkFont(family=SYS_FONT, size=12), command=self._on_mode_change); self.mode_switch.pack(fill="x", padx=p, pady=2); self.mode_switch.set("智能分割")
+        ctk.CTkLabel(scroll_p, text="资源管理", font=ctk.CTkFont(family=SYS_FONT, weight="bold", size=12)).pack(anchor="w", padx=p, pady=(10, 2))
         wm_row = ctk.CTkFrame(scroll_p, fg_color="transparent"); wm_row.pack(fill="x", padx=p, pady=1)
-        self.wm_btn = ctk.CTkButton(wm_row, text="🖼️ 水印图", height=28, command=self.browse_watermark); self.wm_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
-        ctk.CTkButton(wm_row, text="×", width=28, height=28, fg_color="#E74C3C", command=self.clear_watermark).pack(side="right")
+        self.wm_btn = ctk.CTkButton(wm_row, text="🖼️ 水印图", height=28, font=ctk.CTkFont(family=SYS_FONT, size=12), command=self.browse_watermark); self.wm_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        ctk.CTkButton(wm_row, text="×", width=28, height=28, fg_color="#E74C3C", font=ctk.CTkFont(family=SYS_FONT, size=14), command=self.clear_watermark).pack(side="right")
         bgm_row = ctk.CTkFrame(scroll_p, fg_color="transparent"); bgm_row.pack(fill="x", padx=p, pady=1)
-        self.bgm_btn = ctk.CTkButton(bgm_row, text="🎵 背景音乐", height=28, command=self.browse_bgm); self.bgm_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
-        ctk.CTkButton(bgm_row, text="×", width=28, height=28, fg_color="#E74C3C", command=self.clear_bgm).pack(side="right")
+        self.bgm_btn = ctk.CTkButton(bgm_row, text="🎵 背景音乐", height=28, font=ctk.CTkFont(family=SYS_FONT, size=12), command=self.browse_bgm); self.bgm_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        ctk.CTkButton(bgm_row, text="×", width=28, height=28, fg_color="#E74C3C", font=ctk.CTkFont(family=SYS_FONT, size=14), command=self.clear_bgm).pack(side="right")
         self.preview_card = ctk.CTkFrame(scroll_p, fg_color=self.card_col, corner_radius=8, border_width=1, border_color=self.border_col); self.preview_card.pack(fill="x", padx=p, pady=8)
-        ctk.CTkLabel(self.preview_card, text="资源预览", font=ctk.CTkFont(size=11, weight="bold")).pack(pady=2)
-        self.wm_preview_box = ctk.CTkLabel(self.preview_card, text="无水印预览", text_color="#999999", font=ctk.CTkFont(size=10), height=110); self.wm_preview_box.pack(pady=2, fill="x")
+        ctk.CTkLabel(self.preview_card, text="资源预览", font=ctk.CTkFont(family=SYS_FONT, size=11, weight="bold")).pack(pady=2)
+        self.wm_preview_box = ctk.CTkLabel(self.preview_card, text="无水印预览", text_color="#999999", font=ctk.CTkFont(family=SYS_FONT, size=11), height=110); self.wm_preview_box.pack(pady=2, fill="x")
         bgm_f = ctk.CTkFrame(self.preview_card, fg_color="transparent"); bgm_f.pack(fill="x", padx=8, pady=5); bgm_f.grid_columnconfigure(0, weight=1)
-        self.bgm_preview_label = ctk.CTkLabel(bgm_f, text="无音频预览", text_color="#888888", font=ctk.CTkFont(size=10), anchor="w"); self.bgm_preview_label.grid(row=0, column=0, sticky="ew")
-        self.audio_btn = ctk.CTkButton(bgm_f, text="▶ 试听", width=55, height=24, font=ctk.CTkFont(size=10), command=self.toggle_bgm_preview); self.audio_btn.grid(row=0, column=1, sticky="e")
+        self.bgm_preview_label = ctk.CTkLabel(bgm_f, text="无音频预览", text_color="#888888", font=ctk.CTkFont(family=SYS_FONT, size=11), anchor="w"); self.bgm_preview_label.grid(row=0, column=0, sticky="ew")
+        self.audio_btn = ctk.CTkButton(bgm_f, text="▶ 试听", width=55, height=24, font=ctk.CTkFont(family=SYS_FONT, size=11), command=self.toggle_bgm_preview); self.audio_btn.grid(row=0, column=1, sticky="e")
         speed_f = ctk.CTkFrame(scroll_p, fg_color="transparent"); speed_f.pack(fill="x", padx=p, pady=(10, 0))
-        ctk.CTkLabel(speed_f, text="视频变速", font=ctk.CTkFont(size=11)).pack(side="left")
-        self.speed_entry = ctk.CTkEntry(speed_f, width=60, height=24, font=ctk.CTkFont(size=11), justify="center", fg_color=self.card_col, border_color=self.border_col)
+        ctk.CTkLabel(speed_f, text="视频变速", font=ctk.CTkFont(family=SYS_FONT, size=11)).pack(side="left")
+        self.speed_entry = ctk.CTkEntry(speed_f, width=60, height=24, font=ctk.CTkFont(family=SYS_FONT, size=11), justify="center", fg_color=self.card_col, border_color=self.border_col)
         self.speed_entry.pack(side="right", padx=(10, 0)); self.speed_entry.insert(0, "1.00"); self.speed_entry.bind("<Return>", self._on_speed_entry_confirm)
         self.speed_slider = ctk.CTkSlider(scroll_p, from_=0.5, to=2.0, height=16, command=self._on_speed_slide); self.speed_slider.pack(fill="x", padx=p, pady=2); self.speed_slider.set(1.0)
-        ctk.CTkLabel(scroll_p, text="音量调节", font=ctk.CTkFont(size=11)).pack(anchor="w", padx=p, pady=(10, 0))
+        ctk.CTkLabel(scroll_p, text="音量调节", font=ctk.CTkFont(family=SYS_FONT, size=11)).pack(anchor="w", padx=p, pady=(10, 0))
         vol_f = ctk.CTkFrame(scroll_p, fg_color="transparent"); vol_f.pack(fill="x", padx=p)
         self.vol_slider = ctk.CTkSlider(vol_f, from_=0, to=1.5, height=16, command=self._on_vol_slide); self.vol_slider.pack(side="left", fill="x", expand=True)
-        self.vol_entry = ctk.CTkEntry(vol_f, width=50, height=24, font=ctk.CTkFont(size=11), justify="center", fg_color=self.card_col, border_color=self.border_col)
+        self.vol_entry = ctk.CTkEntry(vol_f, width=50, height=24, font=ctk.CTkFont(family=SYS_FONT, size=11), justify="center", fg_color=self.card_col, border_color=self.border_col)
         self.vol_entry.pack(side="right", padx=(10, 0)); self.vol_entry.insert(0, "0.20"); self.vol_entry.bind("<Return>", self._on_vol_entry_confirm)
 
         btn_frame = ctk.CTkFrame(scroll_p, fg_color="transparent")
@@ -193,56 +218,46 @@ class MainWindow(TkinterDnD.Tk):
         btn_frame.grid_columnconfigure(0, weight=1)
         btn_frame.grid_columnconfigure(1, weight=1)
 
-        self.start_btn = ctk.CTkButton(btn_frame, text="🚀 开启生产", height=45, font=ctk.CTkFont(size=15, weight="bold"), command=self.start_processing)
+        self.start_btn = ctk.CTkButton(btn_frame, text="🚀 开启生产", height=45, font=ctk.CTkFont(family=SYS_FONT, size=14, weight="bold"), command=self.start_processing)
         self.start_btn.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
 
-        self.pause_btn = ctk.CTkButton(btn_frame, text="⏸ 暂停", height=40, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#f39c12", hover_color="#e67e22", state="disabled", command=self.toggle_pause)
+        self.pause_btn = ctk.CTkButton(btn_frame, text="⏸ 暂停", height=40, font=ctk.CTkFont(family=SYS_FONT, size=12, weight="bold"), fg_color="#f39c12", hover_color="#e67e22", state="disabled", command=self.toggle_pause)
         self.pause_btn.grid(row=1, column=0, sticky="ew", padx=(0, 5))
 
-        self.cancel_btn = ctk.CTkButton(btn_frame, text="⏹ 取消", height=40, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#e74c3c", hover_color="#c0392b", state="disabled", command=self.cancel_processing)
+        self.cancel_btn = ctk.CTkButton(btn_frame, text="⏹ 取消", height=40, font=ctk.CTkFont(family=SYS_FONT, size=12, weight="bold"), fg_color="#e74c3c", hover_color="#c0392b", state="disabled", command=self.cancel_processing)
         self.cancel_btn.grid(row=1, column=1, sticky="ew", padx=(5, 0))
 
-        self.open_btn = ctk.CTkButton(scroll_p, text="📂 浏览输出", height=32, fg_color=("#F0F0F0", "#333333"), text_color=("#333333", "#FFFFFF"), font=ctk.CTkFont(size=12), state="disabled", command=self.open_last_dir); self.open_btn.pack(fill="x", padx=p, pady=(0, 15))
+        self.open_btn = ctk.CTkButton(scroll_p, text="📂 浏览输出", height=32, fg_color=("#F0F0F0", "#333333"), text_color=("#333333", "#FFFFFF"), font=ctk.CTkFont(family=SYS_FONT, size=12), state="disabled", command=self.open_last_dir); self.open_btn.pack(fill="x", padx=p, pady=(0, 15))
 
     def _build_settings_tab(self, parent):
         scroll_s = ctk.CTkScrollableFrame(parent, fg_color="transparent", corner_radius=0)
         scroll_s.pack(fill="both", expand=True)
         p = 15
 
-        # --- 【修复】：读取配置、默认 17，并解决文字截断问题 ---
-        ctk.CTkLabel(scroll_s, text="导出画质 (CRF)", font=ctk.CTkFont(weight="bold", size=12)).pack(anchor="w", padx=p, pady=(15, 2))
+        ctk.CTkLabel(scroll_s, text="导出画质 (CRF)", font=ctk.CTkFont(family=SYS_FONT, weight="bold", size=12)).pack(anchor="w", padx=p, pady=(15, 2))
         crf_frame = ctk.CTkFrame(scroll_s, fg_color="transparent")
         crf_frame.pack(fill="x", padx=p, pady=2)
-
-        # 读取配置，如果没有则默认 17
         current_crf = cfg.get("crf", 17)
-
-        self.crf_val_label = ctk.CTkLabel(crf_frame, text=str(current_crf), width=30)
+        self.crf_val_label = ctk.CTkLabel(crf_frame, text=str(current_crf), width=30, font=ctk.CTkFont(family=SYS_FONT, size=12))
         self.crf_val_label.pack(side="right", padx=(10, 0))
         self.crf_slider = ctk.CTkSlider(crf_frame, from_=17, to=25, number_of_steps=8, command=self._on_crf_slide)
         self.crf_slider.pack(side="left", fill="x", expand=True)
         self.crf_slider.set(current_crf)
+        ctk.CTkLabel(scroll_s, text="* 说明：17为视觉无损(体积偏大)，23为标准推荐，25为高压缩(体积偏小)", font=ctk.CTkFont(family=SYS_FONT, size=11), text_color="#888888", justify="left", wraplength=260).pack(anchor="w", padx=p, pady=(2, 10))
 
-        # 增加 wraplength=260，让过长的文字自动换行，防止被截断
-        ctk.CTkLabel(scroll_s, text="* 说明：17为视觉无损(体积偏大)，23为标准推荐，25为高压缩(体积偏小)",
-                     font=ctk.CTkFont(size=11), text_color="#888888", justify="left", wraplength=260).pack(anchor="w", padx=p, pady=(2, 10))
-        # ---------------------------------
-
-        ctk.CTkLabel(scroll_s, text="界面主题", font=ctk.CTkFont(weight="bold", size=12)).pack(anchor="w", padx=p, pady=(10, 2))
-        self.theme_menu = ctk.CTkOptionMenu(scroll_s, values=["Light", "Dark"], height=26, command=self.change_theme); self.theme_menu.pack(fill="x", padx=p); self.theme_menu.set(self.theme_mode)
-        ctk.CTkLabel(scroll_s, text="FFmpeg 路径", font=ctk.CTkFont(weight="bold", size=12)).pack(anchor="w", padx=p, pady=(15, 2))
-        self.ff_entry = ctk.CTkEntry(scroll_s, height=26, font=ctk.CTkFont(size=11), fg_color=self.card_col, border_color=self.border_col); self.ff_entry.pack(fill="x", padx=p, pady=2); self.ff_entry.insert(0, cfg.get("ffmpeg_path", ""))
-
-        # 保存按钮
-        ctk.CTkButton(scroll_s, text="💾 保存设置", height=26, command=self.save_settings).pack(padx=p, pady=15)
-        ctk.CTkSwitch(scroll_s, text="完成后自动归档原片", font=ctk.CTkFont(size=12), variable=self.archive_var).pack(anchor="w", padx=p, pady=10)
+        ctk.CTkLabel(scroll_s, text="界面主题", font=ctk.CTkFont(family=SYS_FONT, weight="bold", size=12)).pack(anchor="w", padx=p, pady=(10, 2))
+        self.theme_menu = ctk.CTkOptionMenu(scroll_s, values=["Light", "Dark"], height=26, font=ctk.CTkFont(family=SYS_FONT, size=12), dropdown_font=ctk.CTkFont(family=SYS_FONT, size=12), command=self.change_theme); self.theme_menu.pack(fill="x", padx=p); self.theme_menu.set(self.theme_mode)
+        ctk.CTkLabel(scroll_s, text="FFmpeg 路径", font=ctk.CTkFont(family=SYS_FONT, weight="bold", size=12)).pack(anchor="w", padx=p, pady=(15, 2))
+        self.ff_entry = ctk.CTkEntry(scroll_s, height=26, font=ctk.CTkFont(family=SYS_FONT, size=11), fg_color=self.card_col, border_color=self.border_col); self.ff_entry.pack(fill="x", padx=p, pady=2); self.ff_entry.insert(0, cfg.get("ffmpeg_path", ""))
+        ctk.CTkButton(scroll_s, text="💾 保存设置", height=26, font=ctk.CTkFont(family=SYS_FONT, size=12), command=self.save_settings).pack(padx=p, pady=15)
+        ctk.CTkSwitch(scroll_s, text="完成后自动归档原片", font=ctk.CTkFont(family=SYS_FONT, size=12), variable=self.archive_var).pack(anchor="w", padx=p, pady=10)
 
     def _on_crf_slide(self, val):
         self.crf_val_label.configure(text=str(int(val)))
 
     def _refresh_template_menu(self):
         templates = cfg.get("templates", {})
-        vals = ["默认配置"] + list(templates.keys())
+        vals =["默认配置"] + list(templates.keys())
         self.tpl_menu.configure(values=vals)
         last_tpl = cfg.get("last_template", "默认配置")
         if last_tpl in vals: self.tpl_menu.set(last_tpl)
@@ -296,7 +311,6 @@ class MainWindow(TkinterDnD.Tk):
                 self._on_template_select("默认配置")
 
     def _update_previews(self):
-        # --- 【核心修复】：使用 1x1 透明图片清空预览，彻底解决 TclError 崩溃和红字警告 ---
         empty_img = ctk.CTkImage(Image.new("RGBA", (1, 1), (0, 0, 0, 0)), size=(1, 1))
         self.wm_preview_box.configure(image=empty_img, text="无水印预览")
         self.wm_img_ref = empty_img
@@ -314,14 +328,12 @@ class MainWindow(TkinterDnD.Tk):
                     except: pass
                 self.after(10, render)
             except: self.wm_preview_box.configure(text="❌ 水印加载失败")
-
         if self.current_bgm_path and os.path.exists(self.current_bgm_path):
             self.bgm_preview_label.configure(text=f"🎵 {os.path.basename(self.current_bgm_path)[:22]}...", text_color="#0D6EFD")
         else: self.bgm_preview_label.configure(text="无音频预览", text_color="#888888")
 
     def clear_watermark(self):
-        self.current_wm_path = ""
-        cfg.set("last_watermark", "")
+        self.current_wm_path = ""; cfg.set("last_watermark", "")
         self._update_previews()
 
     def select_all(self):
@@ -375,12 +387,7 @@ class MainWindow(TkinterDnD.Tk):
                 if not messagebox.askyesno("空间警告", "磁盘剩余空间不足 1GB，可能会导致渲染失败。是否继续？"): return
         except: pass
 
-        # --- 【修改】：将 CRF 传入快照 ---
-        snapshot = {
-            "mode": self.mode_var.get(), "wm": self.current_wm_path,
-            "bgm": self.current_bgm_path, "vol": self.vol_slider.get(),
-            "speed": self.speed_slider.get(), "crf": int(self.crf_slider.get())
-        }
+        snapshot = {"mode": self.mode_var.get(), "wm": self.current_wm_path, "bgm": self.current_bgm_path, "vol": self.vol_slider.get(), "speed": self.speed_slider.get(), "crf": int(self.crf_slider.get())}
 
         for f in to_process:
             self.processing_files.add(f); self.file_vars[f].set(False); self.task_queue.put((f, snapshot))
@@ -482,7 +489,7 @@ class MainWindow(TkinterDnD.Tk):
         item = ctk.CTkFrame(self.scroll_list, height=60, fg_color=self.card_col, corner_radius=6, border_width=1, border_color=self.border_col)
         item.pack(side="top", fill="x", pady=2, padx=5); item.grid_columnconfigure(2, weight=1)
         var = tk.BooleanVar(value=True); self.file_vars[fp] = var
-        chk = ctk.CTkCheckBox(item, text="", variable=var, width=20); chk.grid(row=0, column=0, padx=(8, 2))
+        chk = ctk.CTkCheckBox(item, text="", variable=var, width=20, font=ctk.CTkFont(family=SYS_FONT, size=12)); chk.grid(row=0, column=0, padx=(8, 2))
         item.bind("<Button-1>", lambda e: self._handle_click(e, fp)); chk.bind("<Button-1>", lambda e: self._handle_click(e, fp))
 
         try:
@@ -499,10 +506,10 @@ class MainWindow(TkinterDnD.Tk):
                 try: os.remove(thumb_path)
                 except: pass
             else:
-                ctk.CTkLabel(item, text="🎬", width=70).grid(row=0, column=1, padx=5)
+                ctk.CTkLabel(item, text="🎬", width=70, font=ctk.CTkFont(family=SYS_FONT, size=14)).grid(row=0, column=1, padx=5)
         except Exception as e:
             logging.error(f"缩略图截取失败: {e}")
-            ctk.CTkLabel(item, text="🎬", width=70).grid(row=0, column=1, padx=5)
+            ctk.CTkLabel(item, text="🎬", width=70, font=ctk.CTkFont(family=SYS_FONT, size=14)).grid(row=0, column=1, padx=5)
 
         info_f = ctk.CTkFrame(item, fg_color="transparent")
         info_f.grid(row=0, column=2, sticky="ew", padx=8)
@@ -511,17 +518,17 @@ class MainWindow(TkinterDnD.Tk):
         fname = os.path.basename(fp)
         display_name = fname if len(fname) < 40 else fname[:18] + "..." + fname[-18:]
 
-        name_lbl = ctk.CTkLabel(info_f, text=display_name, font=ctk.CTkFont(size=12, weight="bold"), anchor="w")
+        name_lbl = ctk.CTkLabel(info_f, text=display_name, font=ctk.CTkFont(family=SYS_FONT, size=12, weight="bold"), anchor="w")
         name_lbl.grid(row=0, column=0, sticky="ew")
 
         pb = ctk.CTkProgressBar(info_f, height=5, progress_color="#0D6EFD")
         pb.grid(row=1, column=0, sticky="ew", pady=(4, 0))
         pb.set(0)
 
-        st = ctk.CTkLabel(item, text="就绪", font=ctk.CTkFont(size=11), text_color="#888888", width=60); st.grid(row=0, column=3, padx=10)
+        st = ctk.CTkLabel(item, text="就绪", font=ctk.CTkFont(family=SYS_FONT, size=11), text_color="#888888", width=60); st.grid(row=0, column=3, padx=10)
         self.stop_events[fp] = threading.Event()
 
-        ctk.CTkButton(item, text="×", width=22, height=22, fg_color="transparent", text_color="#bdc3c7", command=lambda f=fp, w=item: self._remove_task(f, w)).grid(row=0, column=4, padx=(0, 8))
+        ctk.CTkButton(item, text="×", width=22, height=22, fg_color="transparent", text_color="#bdc3c7", font=ctk.CTkFont(family=SYS_FONT, size=14), command=lambda f=fp, w=item: self._remove_task(f, w)).grid(row=0, column=4, padx=(0, 8))
         self.file_ui_elements[fp] = {"frame": item, "status": st, "bar": pb}
         self._apply_scroll_to_new_item(item)
 
@@ -555,7 +562,6 @@ class MainWindow(TkinterDnD.Tk):
         self._update_previews()
 
     def save_settings(self):
-        # --- 【修复】：点击保存按钮时，将当前的 CRF 值写入配置文件 ---
         cfg.set("ffmpeg_path", self.ff_entry.get().strip())
         cfg.set("crf", int(self.crf_slider.get()))
         setup_ffmpeg_env()
@@ -592,7 +598,7 @@ class MainWindow(TkinterDnD.Tk):
             except: pass
     def _check_empty_state(self):
         if not self.selected_files and not self.placeholder:
-            self.placeholder = ctk.CTkLabel(self.scroll_list, text="拖拽视频至此处", text_color="#BDBDBD"); self.placeholder.pack(expand=True, pady=180)
+            self.placeholder = ctk.CTkLabel(self.scroll_list, text="拖拽视频至此处", text_color="#BDBDBD", font=ctk.CTkFont(family=SYS_FONT, size=13)); self.placeholder.pack(expand=True, pady=180)
     def _init_dnd_logic(self):
         try:
             self.drop_target_register(DND_FILES); self.dnd_bind('<<Drop>>', self._handle_drop)
