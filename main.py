@@ -5,8 +5,7 @@ import shutil, atexit, logging, tempfile, time
 from ui.main_window import MainWindow
 from tkinterdnd2 import TkinterDnD
 
-# --- 全局拦截 subprocess，彻底拯救 Linux 下的 FFmpeg ---
-# --- 【终极补丁 2】：全局拦截 subprocess ---
+# --- 【终极补丁】：全局拦截 subprocess，彻底拯救 Linux 下的 FFmpeg ---
 _old_popen = subprocess.Popen
 def _patched_popen(*args, **kwargs):
     if 'env' not in kwargs:
@@ -16,15 +15,8 @@ def _patched_popen(*args, **kwargs):
         elif 'LD_LIBRARY_PATH' in env:
             del env['LD_LIBRARY_PATH']
         kwargs['env'] = env
-
-    # --- 【新增】：Windows 下隐藏所有 FFmpeg/FFprobe 弹出的 CMD 黑窗口 ---
-    if os.name == 'nt':
-        if 'creationflags' not in kwargs:
-            kwargs['creationflags'] = 0x08000000  # 0x08000000 等于 subprocess.CREATE_NO_WINDOW
-
     return _old_popen(*args, **kwargs)
 subprocess.Popen = _patched_popen
-# --------------------------------------------------------
 # --------------------------------------------------------
 
 def get_optimal_temp_dir():
