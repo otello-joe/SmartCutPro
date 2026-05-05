@@ -1,5 +1,6 @@
 customtkinter
 tkinterdnd2
 scenedetect
+opencv-python-headless
 Pillow
 pygame

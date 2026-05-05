@@ -8,6 +8,9 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     name: Build on ${{ matrix.os }}
@@ -55,16 +58,16 @@ jobs:
         cp ffmpeg_extracted/ffprobe .
         chmod +x ffmpeg ffprobe
 
-    # --- 【核心修复】：删除了 --copy-metadata 参数，因为我们已经彻底抛弃了臃肿的 MoviePy！ ---
+    # --- 【核心修复】：增加 --hidden-import PIL._tkinter_finder 解决启动崩溃 ---
     - name: Build Executable with PyInstaller (Windows)
       if: runner.os == 'Windows'
       run: |
-        pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" --collect-all customtkinter --collect-all tkinterdnd2 --add-binary "ffmpeg.exe;." --add-binary "ffprobe.exe;." main.py
+        pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" --collect-all customtkinter --collect-all tkinterdnd2 --hidden-import PIL._tkinter_finder --add-binary "ffmpeg.exe;." --add-binary "ffprobe.exe;." main.py
 
     - name: Build Executable with PyInstaller (Linux)
       if: runner.os == 'Linux'
       run: |
-        pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" --collect-all customtkinter --collect-all tkinterdnd2 --add-binary "ffmpeg:." --add-binary "ffprobe:." main.py
+        pyinstaller --noconfirm --onedir --windowed --name "SmartCutPro" --collect-all customtkinter --collect-all tkinterdnd2 --hidden-import PIL._tkinter_finder --add-binary "ffmpeg:." --add-binary "ffprobe:." main.py
 
     - name: Zip Build (Windows)
       if: runner.os == 'Windows'
@@ -74,14 +77,9 @@ jobs:
       if: runner.os == 'Linux'
       run: tar -czvf SmartCutPro-Linux.tar.gz -C dist SmartCutPro
 
-    - name: Upload to Release (Windows)
-      if: runner.os == 'Windows'
+    - name: Upload to Release
       uses: softprops/action-gh-release@v2
       with:
-        files: SmartCutPro-Windows.zip
-
-    - name: Upload to Release (Linux)
-      if: runner.os == 'Linux'
-      uses: softprops/action-gh-release@v2
-      with:
-        files: SmartCutPro-Linux.tar.gz
+        files: |
+          SmartCutPro-Windows.zip
+          SmartCutPro-Linux.tar.gz
