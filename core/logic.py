@@ -11,9 +11,18 @@ import time
 import signal
 import threading
 import json
+import random
+import string
 from datetime import datetime
 from scenedetect import detect, ContentDetector, split_video_ffmpeg
 from .config_mgr import cfg, LOG_FILE
+
+# 尝试加载 psutil 支持跨平台真实暂停挂起
+try:
+    import psutil
+    HAS_PSUTIL = True
+except ImportError:
+    HAS_PSUTIL = False
 
 SYSTEM_TEMP = '/dev/shm' if (os.name != 'nt' and os.path.exists('/dev/shm')) else tempfile.gettempdir()
 logging.basicConfig(filename=LOG_FILE, level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -78,24 +87,55 @@ def get_safe_clean_name(filepath):
     base = os.path.splitext(os.path.basename(filepath))[0]
     return re.sub(r'[^\w\u4e00-\u9fa5\-]', '_', base).strip()[:80]
 
-def get_unique_output_path(out_dir, base_name, suffix=".mp4"):
-    target = os.path.abspath(os.path.join(out_dir, f"{base_name}{suffix}"))
-    if not os.path.exists(target): return target
-    counter = 1
-    while True:
-        new_target = os.path.abspath(os.path.join(out_dir, f"{base_name}_{counter}{suffix}"))
-        if not os.path.exists(new_target): return new_target
-        counter += 1
-
 def get_dynamic_outdir(video_path):
     base_dir = os.path.dirname(os.path.abspath(video_path))
-    folder_name = f"SmartCut_成品_{datetime.now().strftime('%m%d')}"
+    folder_name = f"SmartCut_LH_{datetime.now().strftime('%m%d')}"
     if folder_name in base_dir: return base_dir
     out_dir = os.path.join(base_dir, folder_name)
     os.makedirs(out_dir, exist_ok=True)
     return out_dir
 
-def process_video_ffmpeg(in_video, out_video, start_t, end_t, wm_path, bgm_path, speed, vol, w, h, has_a, stop_event, pause_event, progress_cb, crop_filter=None, crf=23):
+def get_custom_output_path(out_dir, base_name, suffix_type=None, index=None):
+    """
+    根据用户制定的严格命名规则：
+    1. 不再添加任何"成品"或"Pxx"，而是添加"LH"。
+    2. 如果原始名称已经含有"LH"（不区分大小写），则不再重复添加任何"LH"。
+    3. 乱码由LH开头（若已有LH则普通乱码），确保绝对唯一不发生命名覆盖。
+    4. 日期严格追加到文件名最末尾（扩展名前）。
+    """
+    has_lh = "lh" in base_name.lower()
+    date_str = datetime.now().strftime("%Y%m%d")
+
+    # 产生4位随机乱码以确保不覆盖
+    rand_chars = "".join(random.choices(string.ascii_lowercase + string.digits, k=4))
+    # 产生确保唯一的乱码
+    scramble = f"LH{rand_chars}" if not has_lh else rand_chars
+
+    if suffix_type == 'split':
+        # 智能分割输出
+        segment_tag = f"_{index:02d}" if index is not None else ""
+        if not has_lh:
+            core = f"{base_name}_LH{segment_tag}"
+        else:
+            core = f"{base_name}{segment_tag}"
+    elif suffix_type == 'crop':
+        # 分屏裁切
+        side_tag = f"_{index}" if index is not None else ""
+        if not has_lh:
+            core = f"{base_name}_LH{side_tag}"
+        else:
+            core = f"{base_name}{side_tag}"
+    else: # Mode 3 合成
+        if not has_lh:
+            core = f"{base_name}_LH"
+        else:
+            core = f"{base_name}"
+
+    # 格式最终整合: {核心名}_{唯一性乱码}_{当前日期}.mp4
+    filename = f"{core}_{scramble}_{date_str}.mp4"
+    return os.path.abspath(os.path.join(out_dir, filename))
+
+def process_video_ffmpeg(in_video, out_video, start_t, end_t, wm_path, bgm_path, speed, vol, w, h, has_a, stop_event, pause_event, progress_cb, crop_filter=None, crf=23, gpu_codec="libx264"):
     cmd =[FFMPEG_EXE, '-y']
 
     if start_t is not None and end_t is not None:
@@ -154,7 +194,15 @@ def process_video_ffmpeg(in_video, out_video, start_t, end_t, wm_path, bgm_path,
         cmd.extend(['-map', '0:v:0'])
         if a_curr: cmd.extend(['-map', '0:a:0'])
 
-    cmd.extend(['-c:v', 'libx264', '-preset', 'veryfast', '-crf', str(crf), '-pix_fmt', 'yuv420p', '-movflags', '+faststart'])
+    # 精准对接硬解/硬件加速编码选择
+    if gpu_codec == 'h264_nvenc':
+        cmd.extend(['-c:v', 'h264_nvenc', '-preset', 'p4', '-cq', str(crf)])
+    elif gpu_codec == 'h264_qsv':
+        cmd.extend(['-c:v', 'h264_qsv', '-preset', 'fast', '-global_quality', str(crf)])
+    else:
+        cmd.extend(['-c:v', 'libx264', '-preset', 'veryfast', '-crf', str(crf)])
+
+    cmd.extend(['-pix_fmt', 'yuv420p', '-movflags', '+faststart'])
     if a_curr: cmd.extend(['-c:a', 'aac'])
     if wm_idx != -1 or bgm_idx != -1: cmd.append('-shortest')
     cmd.append(out_video)
@@ -176,7 +224,7 @@ def process_video_ffmpeg(in_video, out_video, start_t, end_t, wm_path, bgm_path,
             time_pattern = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
             for line in process.stderr:
                 error_log.append(line.strip())
-                if len(error_log) > 20: error_log.pop(0)
+                if len(error_log) > 30: error_log.pop(0)
                 match = time_pattern.search(line)
                 if match and total_dur > 0:
                     h, m, s = map(float, match.groups())
@@ -188,8 +236,10 @@ def process_video_ffmpeg(in_video, out_video, start_t, end_t, wm_path, bgm_path,
 
         while process.poll() is None:
             if stop_event and stop_event.is_set():
-                if is_paused and os.name != 'nt':
-                    try: os.kill(process.pid, signal.SIGCONT)
+                if is_paused:
+                    try:
+                        if os.name != 'nt': os.kill(process.pid, signal.SIGCONT)
+                        elif HAS_PSUTIL: psutil.Process(process.pid).resume()
                     except: pass
                 process.terminate()
                 try: process.wait(timeout=2)
@@ -201,21 +251,37 @@ def process_video_ffmpeg(in_video, out_video, start_t, end_t, wm_path, bgm_path,
 
             if pause_event:
                 if not pause_event.is_set():
-                    if not is_paused and os.name != 'nt':
-                        try: os.kill(process.pid, signal.SIGSTOP)
-                        except: pass
+                    if not is_paused:
+                        if os.name != 'nt':
+                            try: os.kill(process.pid, signal.SIGSTOP)
+                            except: pass
+                        elif HAS_PSUTIL:
+                            try: psutil.Process(process.pid).suspend()
+                            except: pass
                         is_paused = True
                     pause_event.wait()
-                    if is_paused and os.name != 'nt':
-                        try: os.kill(process.pid, signal.SIGCONT)
-                        except: pass
+                    if is_paused:
+                        if os.name != 'nt':
+                            try: os.kill(process.pid, signal.SIGCONT)
+                            except: pass
+                        elif HAS_PSUTIL:
+                            try: psutil.Process(process.pid).resume()
+                            except: pass
                         is_paused = False
             time.sleep(0.2)
 
         process.wait()
         if process.returncode != 0:
             err_msg = "\n".join(error_log)
-            logging.error(f"FFmpeg 渲染失败，退出码: {process.returncode}\n详细错误:\n{err_msg}")
+            diag_tip = ""
+            if "nvenc" in err_msg.lower() and ("failed" in err_msg.lower() or "device" in err_msg.lower() or "init" in err_msg.lower()):
+                diag_tip = "\n【诊断提示】: NVIDIA NVENC 初始化失败。请确认是否支持 NVENC 并更新显卡驱动，或设置中切回 'libx264 (CPU)'。"
+            elif "qsv" in err_msg.lower() and ("failed" in err_msg.lower() or "device" in err_msg.lower()):
+                diag_tip = "\n【诊断提示】: Intel QSV 核显硬件加速启动失败。请确认主板 BIOS 中已开启核显并装载驱动，或切回 'libx264 (CPU)'。"
+            elif "invalid data found" in err_msg.lower():
+                diag_tip = "\n【诊断提示】: 输入的视频或素材资源已损坏，请重新检查源文件。"
+
+            logging.error(f"FFmpeg 渲染失败，退出码: {process.returncode}{diag_tip}\n详细错误:\n{err_msg}")
             return False
 
         if progress_cb: progress_cb(100)
@@ -229,6 +295,8 @@ def split_by_scene_changes(video_path, stop_event, pause_event, progress_cb, sta
         out_dir = get_dynamic_outdir(video_path)
         w, h, _, _, _ = get_video_full_info(video_path)
         has_a = has_audio(video_path)
+
+        # --- 【修复核心】：这里调用你定义好的规范化命名 ---
         clean_vname = get_safe_clean_name(video_path)
 
         status_cb("🔍 场景扫描中...")
@@ -237,7 +305,12 @@ def split_by_scene_changes(video_path, stop_event, pause_event, progress_cb, sta
 
         if not p.get('wm') and not p.get('bgm') and p.get('speed', 1.0) == 1.0:
             status_cb("🚀 极速秒切")
+
+            # --- 【重点修正】：构造规范化模板 ---
+            # 确保模板路径是完整且合法的
             tpl = os.path.join(out_dir, f"{clean_vname}_S$SCENE_NUMBER.mp4")
+
+            # 使用 scenedetect 的原始 split 方法
             split_video_ffmpeg(video_path, scene_list, output_file_template=tpl, show_progress=False)
             progress_cb(100)
         else:
@@ -246,13 +319,15 @@ def split_by_scene_changes(video_path, stop_event, pause_event, progress_cb, sta
                 if stop_event.is_set(): raise CancelledError()
                 status_cb(f"分段 {i+1}")
                 st, en = s[0].get_seconds(), s[1].get_seconds()
-                out = get_unique_output_path(out_dir, f"{clean_vname}_P{i+1:02d}")
+
+                # 应用统一个性化命名机制
+                out = get_custom_output_path(out_dir, clean_vname, suffix_type='split', index=i+1)
 
                 def sub_progress(val): progress_cb((i / total) * 100 + (val / total))
 
                 success = process_video_ffmpeg(
                     video_path, out, st, en, p.get('wm'), p.get('bgm'), p.get('speed', 1.0), p.get('vol', 0.2),
-                    w, h, has_a, stop_event, pause_event, sub_progress, crf=p.get('crf', 23)
+                    w, h, has_a, stop_event, pause_event, sub_progress, crf=p.get('crf', 23), gpu_codec=p.get('gpu_codec', 'libx264')
                 )
                 if not success: break
         return {"status": "Success"}
@@ -271,13 +346,15 @@ def crop_split_screen(video_path, stop_event, pause_event, progress_cb, status_c
             if stop_event.is_set(): raise CancelledError()
             status_cb(f"裁切 {side}")
             crop_filter = "crop=iw/2:ih:0:0" if side == "L" else "crop=iw/2:ih:iw/2:0"
-            out = get_unique_output_path(out_dir, f"{clean_vname}_{side}")
+
+            # 应用统一命名规则
+            out = get_custom_output_path(out_dir, clean_vname, suffix_type='crop', index=side)
 
             def sub_progress(val): progress_cb((i / 2) * 100 + (val / 2))
 
             success = process_video_ffmpeg(
                 video_path, out, None, None, p.get('wm'), p.get('bgm'), p.get('speed', 1.0), p.get('vol', 0.2),
-                w, h, has_a, stop_event, pause_event, sub_progress, crop_filter=crop_filter, crf=p.get('crf', 23)
+                w, h, has_a, stop_event, pause_event, sub_progress, crop_filter=crop_filter, crf=p.get('crf', 23), gpu_codec=p.get('gpu_codec', 'libx264')
             )
             if not success: break
         return {"status": "Success"}
@@ -290,11 +367,14 @@ def add_watermark_only(video_path, stop_event, pause_event, progress_cb, status_
         out_dir = get_dynamic_outdir(video_path)
         w, h, _, _, _ = get_video_full_info(video_path)
         has_a = has_audio(video_path)
-        out = get_unique_output_path(out_dir, f"{get_safe_clean_name(video_path)}_成品")
+        clean_vname = get_safe_clean_name(video_path)
+
+        # 应用统一命名规则，替换原“_成品”为“_LH”形式，并在最后拼接唯一性乱码及日期
+        out = get_custom_output_path(out_dir, clean_vname, suffix_type='composite')
 
         success = process_video_ffmpeg(
             video_path, out, None, None, p.get('wm'), p.get('bgm'), p.get('speed', 1.0), p.get('vol', 0.2),
-            w, h, has_a, stop_event, pause_event, progress_cb, crf=p.get('crf', 23)
+            w, h, has_a, stop_event, pause_event, progress_cb, crf=p.get('crf', 23), gpu_codec=p.get('gpu_codec', 'libx264')
         )
         if not success: return {"status": "Error"}
         return {"status": "Success"}

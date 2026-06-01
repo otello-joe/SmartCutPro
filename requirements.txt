@@ -4,3 +4,4 @@ scenedetect
 opencv-python-headless
 Pillow
 pygame
+psutil

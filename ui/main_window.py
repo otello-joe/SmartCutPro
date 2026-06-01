@@ -14,20 +14,17 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 from tkinterdnd2 import DND_FILES, TkinterDnD
 from PIL import Image, ImageOps, ImageTk
-import sys # 确保顶部导入了 sys
+import sys
 import warnings
 warnings.filterwarnings("ignore", message=".*Given image is not CTkImage.*")
 
 from core.config_mgr import cfg
 from core.logic import split_by_scene_changes, crop_split_screen, add_watermark_only, get_dynamic_outdir, archive_original_file, setup_ffmpeg_env, FFMPEG_EXE, CancelledError
 
-# --- 【核心修复】：定义全局系统字体，彻底解决 Windows 字体发虚发毛的问题 ---
 SYS_FONT = "Microsoft YaHei" if os.name == "nt" else "sans-serif"
-# ------------------------------------------------------------------------
+
 def resource_path(relative_path):
-    """获取资源的绝对路径，兼容开发环境和 PyInstaller 打包环境"""
     try:
-        # PyInstaller 创建临时文件夹，将路径存入 _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
         base_path = os.path.abspath(".")
@@ -47,10 +44,19 @@ class UITextHandler(logging.Handler):
         msg = self.format(record)
         self.text_widget.after(0, self._append_text, msg)
     def _append_text(self, msg):
-        self.text_widget.configure(state="normal")
-        self.text_widget.insert("end", msg + "\n")
-        self.text_widget.see("end")
-        self.text_widget.configure(state="disabled")
+        try:
+            self.text_widget.configure(state="normal")
+            self.text_widget.insert("end", msg + "\n")
+
+            # 日志展示行数限制，防止长期积攒造成页面假死或卡顿
+            num_lines = int(self.text_widget.index('end-1c').split('.')[0])
+            if num_lines > 500:
+                self.text_widget.delete("1.0", f"{num_lines - 500}.0")
+
+            self.text_widget.see("end")
+            self.text_widget.configure(state="disabled")
+        except:
+            pass
 
 def send_linux_notification(title, message):
     if os.name != 'nt':
@@ -91,14 +97,12 @@ class MainWindow(TkinterDnD.Tk):
         if os.path.exists(icon_path):
             try:
                 if os.name == 'nt':
-                    self.iconbitmap(icon_path) # Windows 专用
+                    self.iconbitmap(icon_path)
                 else:
-                    # Linux 兼容方案
                     icon_img = ImageTk.PhotoImage(Image.open(icon_path))
                     self.iconphoto(False, icon_img)
             except Exception as e:
                 logging.error(f"加载图标失败: {e}")
-        # --------------------------------------
 
         self._build_ui()
         self._init_dnd_logic()
@@ -245,15 +249,46 @@ class MainWindow(TkinterDnD.Tk):
         self.crf_slider.set(current_crf)
         ctk.CTkLabel(scroll_s, text="* 说明：17为视觉无损(体积偏大)，23为标准推荐，25为高压缩(体积偏小)", font=ctk.CTkFont(family=SYS_FONT, size=11), text_color="#888888", justify="left", wraplength=260).pack(anchor="w", padx=p, pady=(2, 10))
 
+        # 视频硬解加速通道配置
+        ctk.CTkLabel(scroll_s, text="视频编码器 (硬件加速)", font=ctk.CTkFont(family=SYS_FONT, weight="bold", size=12)).pack(anchor="w", padx=p, pady=(10, 2))
+        self.codec_menu = ctk.CTkOptionMenu(scroll_s, values=["libx264 (CPU)", "h264_nvenc (NVIDIA)", "h264_qsv (Intel)"], height=26, font=ctk.CTkFont(family=SYS_FONT, size=12), dropdown_font=ctk.CTkFont(family=SYS_FONT, size=12), command=self.change_codec)
+        self.codec_menu.pack(fill="x", padx=p)
+        current_codec = cfg.get("gpu_codec", "libx264")
+        codec_mapping = {"libx264": "libx264 (CPU)", "h264_nvenc": "h264_nvenc (NVIDIA)", "h264_qsv": "h264_qsv (Intel)"}
+        self.codec_menu.set(codec_mapping.get(current_codec, "libx264 (CPU)"))
+
         ctk.CTkLabel(scroll_s, text="界面主题", font=ctk.CTkFont(family=SYS_FONT, weight="bold", size=12)).pack(anchor="w", padx=p, pady=(10, 2))
         self.theme_menu = ctk.CTkOptionMenu(scroll_s, values=["Light", "Dark"], height=26, font=ctk.CTkFont(family=SYS_FONT, size=12), dropdown_font=ctk.CTkFont(family=SYS_FONT, size=12), command=self.change_theme); self.theme_menu.pack(fill="x", padx=p); self.theme_menu.set(self.theme_mode)
+
+        # FFmpeg 自动探测排布布局
         ctk.CTkLabel(scroll_s, text="FFmpeg 路径", font=ctk.CTkFont(family=SYS_FONT, weight="bold", size=12)).pack(anchor="w", padx=p, pady=(15, 2))
-        self.ff_entry = ctk.CTkEntry(scroll_s, height=26, font=ctk.CTkFont(family=SYS_FONT, size=11), fg_color=self.card_col, border_color=self.border_col); self.ff_entry.pack(fill="x", padx=p, pady=2); self.ff_entry.insert(0, cfg.get("ffmpeg_path", ""))
+        ff_row = ctk.CTkFrame(scroll_s, fg_color="transparent")
+        ff_row.pack(fill="x", padx=p, pady=2)
+        ff_row.grid_columnconfigure(0, weight=1)
+        self.ff_entry = ctk.CTkEntry(ff_row, height=26, font=ctk.CTkFont(family=SYS_FONT, size=11), fg_color=self.card_col, border_color=self.border_col)
+        self.ff_entry.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        self.ff_entry.insert(0, cfg.get("ffmpeg_path", ""))
+        self.ff_detect_btn = ctk.CTkButton(ff_row, text="🔍 自动检测", width=80, height=26, font=ctk.CTkFont(family=SYS_FONT, size=11), command=self.auto_detect_ffmpeg)
+        self.ff_detect_btn.grid(row=0, column=1, sticky="e")
+
         ctk.CTkButton(scroll_s, text="💾 保存设置", height=26, font=ctk.CTkFont(family=SYS_FONT, size=12), command=self.save_settings).pack(padx=p, pady=15)
         ctk.CTkSwitch(scroll_s, text="完成后自动归档原片", font=ctk.CTkFont(family=SYS_FONT, size=12), variable=self.archive_var).pack(anchor="w", padx=p, pady=10)
 
     def _on_crf_slide(self, val):
         self.crf_val_label.configure(text=str(int(val)))
+
+    def change_codec(self, val):
+        codec = {"libx264 (CPU)": "libx264", "h264_nvenc (NVIDIA)": "h264_nvenc", "h264_qsv (Intel)": "h264_qsv"}[val]
+        cfg.set("gpu_codec", codec)
+
+    def auto_detect_ffmpeg(self):
+        found = shutil.which("ffmpeg")
+        if found:
+            self.ff_entry.delete(0, tk.END)
+            self.ff_entry.insert(0, found)
+            messagebox.showinfo("成功", f"自动检测完成！已在系统 PATH 中定位到 FFmpeg：\n{found}")
+        else:
+            messagebox.showwarning("检测提示", "未能在系统环境变量中自动检测到 FFmpeg。请检查是否安装配置，或者手动在上方填入完整路径。")
 
     def _refresh_template_menu(self):
         templates = cfg.get("templates", {})
@@ -387,7 +422,16 @@ class MainWindow(TkinterDnD.Tk):
                 if not messagebox.askyesno("空间警告", "磁盘剩余空间不足 1GB，可能会导致渲染失败。是否继续？"): return
         except: pass
 
-        snapshot = {"mode": self.mode_var.get(), "wm": self.current_wm_path, "bgm": self.current_bgm_path, "vol": self.vol_slider.get(), "speed": self.speed_slider.get(), "crf": int(self.crf_slider.get())}
+        # 封装 snapshot 时一并传入视频硬解加速通道配置
+        snapshot = {
+            "mode": self.mode_var.get(),
+            "wm": self.current_wm_path,
+            "bgm": self.current_bgm_path,
+            "vol": self.vol_slider.get(),
+            "speed": self.speed_slider.get(),
+            "crf": int(self.crf_slider.get()),
+            "gpu_codec": cfg.get("gpu_codec", "libx264")
+        }
 
         for f in to_process:
             self.processing_files.add(f); self.file_vars[f].set(False); self.task_queue.put((f, snapshot))
@@ -403,8 +447,10 @@ class MainWindow(TkinterDnD.Tk):
         self.cancel_btn.configure(state="normal")
         self.pause_event.set()
 
+        # 精细化安全核心数并发计算
         concurrency = int(cfg.get("concurrency", 2))
-        if concurrency <= 0: concurrency = max(1, os.cpu_count() // 2)
+        max_safe_threads = max(1, os.cpu_count() // 2)
+        concurrency = min(concurrency, max_safe_threads, 4)
 
         for _ in range(concurrency):
             threading.Thread(target=self._queue_worker, daemon=True).start()
@@ -492,24 +538,13 @@ class MainWindow(TkinterDnD.Tk):
         chk = ctk.CTkCheckBox(item, text="", variable=var, width=20, font=ctk.CTkFont(family=SYS_FONT, size=12)); chk.grid(row=0, column=0, padx=(8, 2))
         item.bind("<Button-1>", lambda e: self._handle_click(e, fp)); chk.bind("<Button-1>", lambda e: self._handle_click(e, fp))
 
-        try:
-            thumb_path = os.path.join(self.temp_dir, f"thumb_{uuid.uuid4().hex[:8]}.jpg")
-            cmd =[FFMPEG_EXE, '-y', '-i', fp, '-ss', '00:00:00.500', '-vframes', '1', thumb_path]
-            subprocess.run(cmd, capture_output=True, env=get_clean_env())
+        # 快速渲染默认的卡片与图标，完全解除拖入排队卡顿问题
+        thumb_lbl = ctk.CTkLabel(item, text="🎬", width=70, font=ctk.CTkFont(family=SYS_FONT, size=14))
+        thumb_lbl.grid(row=0, column=1, padx=5, pady=8)
+        thumb_lbl.bind("<Button-1>", lambda e: self._handle_click(e, fp))
 
-            if os.path.exists(thumb_path):
-                img = Image.open(thumb_path).convert("RGB")
-                img = ImageOps.fit(img, (70, 40), Image.Resampling.LANCZOS)
-                thumb = ctk.CTkLabel(item, text="", image=ctk.CTkImage(img, size=(70, 40)))
-                thumb.grid(row=0, column=1, padx=5, pady=8)
-                thumb.bind("<Button-1>", lambda e: self._handle_click(e, fp))
-                try: os.remove(thumb_path)
-                except: pass
-            else:
-                ctk.CTkLabel(item, text="🎬", width=70, font=ctk.CTkFont(family=SYS_FONT, size=14)).grid(row=0, column=1, padx=5)
-        except Exception as e:
-            logging.error(f"缩略图截取失败: {e}")
-            ctk.CTkLabel(item, text="🎬", width=70, font=ctk.CTkFont(family=SYS_FONT, size=14)).grid(row=0, column=1, padx=5)
+        # 启动后台守护进程，专门去执行缩略图提取渲染，再异步回灌主线程更新 UI
+        threading.Thread(target=self._load_thumbnail_async, args=(fp, thumb_lbl), daemon=True).start()
 
         info_f = ctk.CTkFrame(item, fg_color="transparent")
         info_f.grid(row=0, column=2, sticky="ew", padx=8)
@@ -531,6 +566,31 @@ class MainWindow(TkinterDnD.Tk):
         ctk.CTkButton(item, text="×", width=22, height=22, fg_color="transparent", text_color="#bdc3c7", font=ctk.CTkFont(family=SYS_FONT, size=14), command=lambda f=fp, w=item: self._remove_task(f, w)).grid(row=0, column=4, padx=(0, 8))
         self.file_ui_elements[fp] = {"frame": item, "status": st, "bar": pb}
         self._apply_scroll_to_new_item(item)
+
+    # 异步多线程解析缩略图，杜绝大批量视频载入时卡死 UI 的严重缺陷
+    def _load_thumbnail_async(self, fp, label_widget):
+        try:
+            thumb_path = os.path.join(self.temp_dir, f"thumb_{uuid.uuid4().hex[:8]}.jpg")
+            cmd =[FFMPEG_EXE, '-y', '-i', fp, '-ss', '00:00:00.500', '-vframes', '1', thumb_path]
+            subprocess.run(cmd, capture_output=True, env=get_clean_env())
+
+            if os.path.exists(thumb_path):
+                img = Image.open(thumb_path).convert("RGB")
+                img = ImageOps.fit(img, (70, 40), Image.Resampling.LANCZOS)
+                ctk_img = ctk.CTkImage(img, size=(70, 40))
+
+                # 切换安全回到 Tkinter 的 MainLoop 线程中去修改样式，杜绝跨线程渲染冲突
+                def _update():
+                    try:
+                        label_widget.configure(text="", image=ctk_img)
+                        label_widget.image = ctk_img
+                    except: pass
+                    finally:
+                        try: os.remove(thumb_path)
+                        except: pass
+                self.after(0, _update)
+        except Exception as e:
+            logging.error(f"提取缩略图子线程解析异常: {e}")
 
     def _setup_scrolling_logic(self, scroll_frame):
         canvas = scroll_frame._parent_canvas
